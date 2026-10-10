@@ -8,9 +8,13 @@ Userscript для Violentmonkey на `https://dubtv.pro`.
 
 ## Установка
 
-1. Установите Violentmonkey в браузер.
-2. Откройте **[последний релиз скрипта](https://github.com/Laynholt/dubtv-plus/releases/latest/download/dubtv-plus.user.js)** и подтвердите установку.
+[![Установить DubTV+](assets/install.svg)](https://github.com/Laynholt/dubtv-plus/releases/latest/download/dubtv-plus.user.js)
+
+1. Установите [Violentmonkey](https://violentmonkey.github.io/get-it/) в браузер.
+2. Нажмите кнопку выше или **[«Установить скрипт»](https://github.com/Laynholt/dubtv-plus/releases/latest/download/dubtv-plus.user.js)** — откроется окно установки в Violentmonkey. Подтвердите установку.
 3. Обновите страницу DubTV.
+
+Ссылка ведёт непосредственно на `.user.js`, открывать код и копировать его не нужно. Если вместо окна установки скачался файл, проверьте, что Violentmonkey включён в этом браузере, и откройте ссылку снова.
 
 Альтернатива: создайте скрипт в Violentmonkey и вставьте содержимое `dubtv-plus.user.js`.
 
