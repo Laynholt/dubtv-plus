@@ -1,0 +1,97 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>QoL tests</title>
+<style>body{margin:0;background:#161619;color:white;font:16px system-ui}main{padding:30px}.wrap{max-width:900px;margin:auto;padding:20px}video{width:100%;height:100%;background:linear-gradient(135deg,#243944,#162029)}#player{position:relative;aspect-ratio:16/9;max-height:85vh;background:#000;overflow:hidden}.controls{position:absolute;bottom:0;left:0;right:0;padding:14px;background:linear-gradient(transparent,#000)}.row{display:flex;align-items:center;gap:4px}.row button{width:40px;height:40px;flex-shrink:0;background:transparent;color:white;border:0}.tabular-nums{font:13px system-ui;white-space:nowrap}[role=slider]{height:5px;background:#d95530;margin:12px 0}button{padding:8px}#results{min-height:1000px}</style>
+<header>DubTV fixture</header><main><section id="hero"><div class="pointer-events-none" style="position:absolute">Gradient</div><div class="wrap"><div class="inner"><div class="relative"><div id="player"><video></video><div class="controls"><div role="slider" aria-label="Прогресс воспроизведения" aria-valuemin="0" aria-valuemax="100" aria-valuenow="16"></div><div class="row"><button aria-label="Воспроизвести">▶</button><span class="tabular-nums">4:00 / 24:00</span><div style="flex:1"></div><button aria-label="Режим кинотеатра">▭</button><button aria-label="Полный экран">⛶</button></div></div></div></div><button id="prev" disabled>Пред.</button><button id="next">След.</button></div></div></section>
+<div><h3>Описание</h3><p id="description">Описание тайтла</p></div><div><div><h3>Комментарии</h3></div><div id="comments">Комментарии здесь</div></div><section><div><div><h2>Похожее</h2></div></div><div>Карточки</div></section><input id="typing"></main><ol id="results"></ol>
+<script>
+history.replaceState(null,'','/release/test'+location.search);
+if(location.search.includes('demo')){
+  const card=document.createElement('a');card.href='/release/demo-long-title';
+  const title=document.createElement('h3');title.textContent='Вайолет Эвергарден — очень длинное название тайтла для проверки ширины меню';card.append(title);
+  document.querySelector('main > section:last-of-type').append(card);
+}
+if(!location.search.includes('demo'))localStorage.setItem('dubtv-plus-options',JSON.stringify({buttonPosition:{x:42,y:60}}));document.cookie='player_speed=2;path=/';
+const video=document.querySelector('video');
+Object.defineProperty(video,'duration',{value:1440,configurable:true});
+video.currentTime=240;
+let nativeTheatre=0,episode=1;
+document.querySelector('[aria-label="Режим кинотеатра"]').onclick=()=>nativeTheatre++;
+document.querySelector('#next').onclick=()=>{episode++;video.dispatchEvent(new Event('loadstart'));};
+</script><script src="/dubtv-plus.user.js?v=100"></script><script type="module">
+if (!location.search.includes('demo')) {
+const tick=()=>new Promise(r=>setTimeout(r,80));let passed=0,failed=0;
+function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
+const key=(code,target=document.body,extra={})=>target.dispatchEvent(new KeyboardEvent('keydown',{code,bubbles:true,cancelable:true,...extra}));
+await tick();
+check('Settings button exists',!!document.querySelector('#dubtv-plus-open'));
+const launcher=document.querySelector('#dubtv-plus-open');
+const initial=launcher.getBoundingClientRect();
+check('Saved button position is restored',initial.left===42&&initial.top===60);
+launcher.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true}));
+check('Button moves with keyboard and saves position',launcher.getBoundingClientRect().left<initial.left&&Number.isFinite(JSON.parse(localStorage.getItem('dubtv-plus-options'))?.buttonPosition?.x));
+const capture=launcher.setPointerCapture;launcher.setPointerCapture=()=>{};
+const pointer=(type,x,y)=>launcher.dispatchEvent(new PointerEvent(type,{pointerId:7,isPrimary:true,button:0,clientX:x,clientY:y,bubbles:true}));
+pointer('pointerdown',100,100);pointer('pointermove',140,140);pointer('pointerup',140,140);launcher.dispatchEvent(new MouseEvent('click',{detail:1,bubbles:true}));
+check('Dragging saves position without opening settings',!document.querySelector('#dubtv-plus-settings').open&&JSON.parse(localStorage.getItem('dubtv-plus-options'))?.buttonPosition?.y===launcher.getBoundingClientRect().top);
+pointer('pointerdown',140,140);pointer('pointermove',-9999,-9999);pointer('pointerup',-9999,-9999);
+check('Dragging clamps button inside viewport',launcher.getBoundingClientRect().left===8&&launcher.getBoundingClientRect().top===8);
+pointer('pointerdown',8,8);pointer('pointermove',80,80);pointer('pointercancel',80,80);
+const cancelled=launcher.getBoundingClientRect().left;pointer('pointermove',180,180);
+check('Cancelled pointer stops moving button',launcher.getBoundingClientRect().left===cancelled);
+launcher.setPointerCapture=capture;
+video.dispatchEvent(new Event('timeupdate'));await tick();
+check('Remaining time uses actual 2x rate',document.querySelector('#dubtv-plus-remaining')?.textContent.includes('10:00'));
+document.querySelector('[aria-label="Режим кинотеатра"]').click();await tick();
+check('Theatre suppresses native modal',nativeTheatre===0);
+check('Theatre is in document flow',document.documentElement.classList.contains('dtvp-theatre')&&getComputedStyle(document.querySelector('#player')).position!=='fixed');
+check('Theatre fills viewport',Math.abs(document.querySelector('#player').getBoundingClientRect().width-document.documentElement.clientWidth)<2&&Math.abs(document.querySelector('#player').getBoundingClientRect().height-innerHeight)<2);
+window.scrollTo(0,300);await tick();check('Theatre allows page scrolling',scrollY>0);
+key('Escape');await tick();check('Escape exits theatre',!document.documentElement.classList.contains('dtvp-theatre'));
+key('ArrowRight',document.body,{shiftKey:true});await tick();check('Next shortcut works',episode===2);
+key('ArrowRight',document.querySelector('#typing'),{shiftKey:true});check('Shortcuts ignore input',episode===2);
+key('KeyX');await tick();check('X decreases saved and actual speed',video.playbackRate===1.75&&document.cookie.includes('player_speed=1.75'));
+key('KeyC');await tick();check('C increases speed',video.playbackRate===2);
+key('BracketLeft');await tick();check('Old speed shortcut is released',video.playbackRate===2);
+key('KeyX',document.querySelector('#typing'));await tick();check('Speed shortcut ignores input',video.playbackRate===2);
+video.dispatchEvent(new Event('loadedmetadata'));video.dispatchEvent(new Event('timeupdate'));
+document.querySelector('[aria-label="Прогресс воспроизведения"]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));video.currentTime=700;video.dispatchEvent(new Event('seeking'));await tick();
+check('Viewer seek offers undo',document.querySelector('#dubtv-plus-undo')?.hidden===false);
+await new Promise(resolve=>setTimeout(resolve,9000));
+video.currentTime=720;video.dispatchEvent(new Event('seeking'));
+document.dispatchEvent(new PointerEvent('pointerup',{bubbles:true}));await tick();
+check('Long progress drag retains original undo target',document.querySelector('#dubtv-plus-undo')?.hidden===false);
+document.querySelector('#dubtv-plus-undo')?.click();await tick();check('Undo restores pre-seek time',video.currentTime===240);
+document.querySelector('[aria-label="Прогресс воспроизведения"]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));video.currentTime=900;video.dispatchEvent(new Event('seeking'));video.dispatchEvent(new Event('loadstart'));await tick();check('Source change clears undo',document.querySelector('#dubtv-plus-undo')?.hidden===true);
+document.querySelector('#dubtv-plus-open')?.click();await tick();
+const tabs=Array.from(document.querySelectorAll('#dubtv-plus-settings [role=tab]'));
+check('Settings have four accessible tabs',tabs.length===4&&tabs.filter(t=>t.getAttribute('aria-selected')==='true').length===1);
+tabs.find(t=>t.textContent==='Интерфейс')?.click();await tick();
+check('Only selected settings panel is shown',document.querySelectorAll('#dubtv-plus-settings [role=tabpanel]:not([hidden])').length===1&&document.querySelector('[data-option=description]')?.getClientRects().length>0);
+tabs[1]?.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true,cancelable:true}));
+check('Tabs support keyboard navigation',tabs[3]?.getAttribute('aria-selected')==='true'&&document.activeElement===tabs[3]);
+tabs[1]?.click();
+Array.from(document.querySelectorAll('#dubtv-plus-settings button')).find(b=>b.textContent==='Вернуть кнопку на место')?.click();
+check('Button position can be reset',!JSON.parse(localStorage.getItem('dubtv-plus-options'))?.buttonPosition&&!launcher.hasAttribute('style'));
+const compact=document.querySelector('[data-option="description"]');if(compact){compact.checked=true;compact.dispatchEvent(new Event('change'));}await tick();
+check('Description collapse hides content',document.querySelector('#description').classList.contains('dtvp-collapsed-content'));
+document.querySelector('[data-expand="description"]')?.click();await tick();check('Collapsed section can be restored',!document.querySelector('#description').classList.contains('dtvp-collapsed-content'));
+key('KeyG');await tick();check('Typing while settings open does not open jump',!document.querySelector('#dubtv-plus-jump')?.open);
+document.querySelector('#dubtv-plus-settings')?.close();key('KeyG');await tick();check('Jump shortcut opens accessible dialog',document.querySelector('#dubtv-plus-jump')?.open===true);
+const time=document.querySelector('#dubtv-plus-time');if(time){time.value='03:15';document.querySelector('#dubtv-plus-jump form').dispatchEvent(new Event('submit',{cancelable:true}));}await tick();check('Jump parses mm:ss',video.currentTime===195);
+async function jumpTo(value){key('KeyG');await tick();time.value=value;time.dispatchEvent(new Event('input'));document.querySelector('#dubtv-plus-jump form').dispatchEvent(new Event('submit',{cancelable:true}));await tick();}
+await jumpTo('3 15');check('Jump parses space separated time',video.currentTime===195&&!document.querySelector('#dubtv-plus-jump').open);
+await jumpTo('30');check('Single number adds seconds to current position',video.currentTime===225&&!document.querySelector('#dubtv-plus-jump').open);
+await jumpTo('0 04 05');check('Jump parses space separated hours',video.currentTime===245);
+await jumpTo('  3   05  ');check('Jump accepts extra whitespace',video.currentTime===185);
+for(const invalid of ['3 75','1:2 03','-5','1.5','99999','1e2','Infinity']){await jumpTo(invalid);check(`Rejects invalid time: ${invalid}`,video.currentTime===185&&document.querySelector('#dubtv-plus-jump').open);document.querySelector('#dubtv-plus-jump').close();}
+await jumpTo('03:15');
+key('KeyG');await tick();if(time){time.value='99:99';document.querySelector('#dubtv-plus-jump form').dispatchEvent(new Event('submit',{cancelable:true}));}await tick();check('Invalid time cannot seek',video.currentTime===195&&document.querySelector('#dubtv-plus-jump')?.open===true);document.querySelector('#dubtv-plus-jump')?.close();
+key('ArrowRight',document.body,{ctrlKey:true,shiftKey:true});check('Browser modifier shortcuts are not intercepted',episode===2);
+document.querySelector('[aria-label="Прогресс воспроизведения"]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));video.currentTime=600;video.dispatchEvent(new Event('seeking'));await tick();
+const replacement=document.createElement('video');video.replaceWith(replacement);await tick();check('Replacing video clears previous undo',!document.querySelector('#dubtv-plus-undo')||document.querySelector('#dubtv-plus-undo').hidden);
+let detachedError=false;const onError=()=>detachedError=true;window.addEventListener('error',onError);
+video.dispatchEvent(new Event('timeupdate'));video.dispatchEvent(new Event('loadstart'));await tick();
+window.removeEventListener('error',onError);check('Detached media callbacks do not throw',!detachedError);
+history.pushState(null,'','/catalog');document.querySelector('main').append(document.createElement('div'));await tick();check('SPA exit restores layout',!document.documentElement.classList.contains('dtvp-theatre')&&!document.querySelector('.dtvp-player'));
+document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+}
+</script></html>

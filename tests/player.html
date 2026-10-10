@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<title>DubTV+ regression tests</title>
+<style>body{font:16px system-ui;background:#15151a;color:white;padding:24px}video{width:480px;height:270px;background:#000}button{padding:10px}li{margin:8px}</style>
+<h1>DubTV+ — browser regression tests</h1>
+<main>
+  <div id="player">
+    <video></video>
+    <div id="controls"><button aria-label="Воспроизвести">▶</button><button id="quality" aria-label="Качество: Авто">Авто</button><div><button id="settings" aria-label="Настройки" aria-expanded="false">⚙</button></div></div>
+  </div>
+  <div><span id="episode">Серия 1</span><button id="previous" disabled>Пред.</button><button id="next">След.</button></div>
+</main>
+<ol id="results"></ol>
+<script>
+history.replaceState(null, '', '/release/test');
+document.cookie = 'player_speed=2;path=/';
+localStorage.setItem('dubtv-plus-quality', '720p');
+let selectedQuality = 'Авто';
+let qualityClicks = 0;
+let availableQualities = ['1080p', '720p', '480p'];
+function setQuality(label) {
+  selectedQuality = label;
+  document.querySelector('#quality').textContent = label;
+  document.querySelector('#quality').setAttribute('aria-label', `Качество: ${label}`);
+}
+function closeMenu() {
+  document.querySelector('#quality-menu')?.remove();
+  document.querySelector('#settings').setAttribute('aria-expanded', 'false');
+}
+function openQuality() {
+  closeMenu();
+  document.querySelector('#settings').setAttribute('aria-expanded', 'true');
+  const menu = document.createElement('div');
+  menu.id = 'quality-menu';
+  const back = document.createElement('button');
+  back.setAttribute('aria-label', 'Назад к настройкам');
+  back.textContent = 'Качество';
+  menu.append(back);
+  for (const label of ['Авто', ...availableQualities]) {
+    const option = document.createElement('button');
+    option.textContent = label;
+    option.onclick = () => { qualityClicks++; setQuality(label); closeMenu(); };
+    menu.append(option);
+  }
+  document.querySelector('#settings').parentElement.append(menu);
+}
+document.querySelector('#settings').onclick = closeMenu;
+document.querySelector('#quality').onclick = openQuality;
+let episode = 1;
+function selectEpisode(step) {
+  episode += step;
+  document.querySelector('#episode').textContent = `Серия ${episode}`;
+  document.querySelector('#previous').disabled = episode === 1;
+  document.querySelector('#next').disabled = episode === 3;
+  const video = document.querySelector('video');
+  setQuality('Авто');
+  video.dispatchEvent(new Event('loadstart'));
+  video.playbackRate = 1;
+  video.dispatchEvent(new Event('loadedmetadata'));
+}
+document.querySelector('#previous').onclick = () => selectEpisode(-1);
+document.querySelector('#next').onclick = () => selectEpisode(1);
+</script>
+<script src="/dubtv-plus.user.js?v=100"></script>
+<script type="module">
+const tick = () => new Promise(resolve => setTimeout(resolve, 30));
+let passed = 0, failed = 0;
+function check(name, condition) {
+  const li = document.createElement('li');
+  li.textContent = `${condition ? 'PASS' : 'FAIL'}: ${name}`;
+  li.style.color = condition ? '#86efac' : '#fca5a5';
+  document.querySelector('#results').append(li);
+  condition ? passed++ : failed++;
+}
+await tick();
+let video = document.querySelector('video');
+check('Saved 2× is applied to the actual video', video.playbackRate === 2 && video.defaultPlaybackRate === 2);
+check('Saved quality is applied through native menu', selectedQuality === '720p');
+check('Automatic quality restore closes its menu', !document.querySelector('#quality-menu'));
+const prev = () => document.querySelector('[aria-label="Предыдущая серия"]');
+const next = () => document.querySelector('[aria-label="Следующая серия"]');
+check('First episode has no previous action', prev()?.disabled === true);
+next()?.click();
+await tick();
+check('Next selects the native second episode', episode === 2);
+check('Episode source reset preserves actual speed', video.playbackRate === 2);
+check('Episode source reset preserves quality', selectedQuality === '720p');
+check('Previous becomes enabled', prev()?.disabled === false);
+next()?.click();
+await tick();
+check('Last episode disables Next', episode === 3 && next()?.disabled === true);
+prev()?.click();
+await tick();
+check('Previous selects the second episode', episode === 2);
+openQuality();
+Array.from(document.querySelectorAll('#quality-menu button')).find(b => b.textContent === '1080p').click();
+check('User quality selection is remembered', localStorage.getItem('dubtv-plus-quality') === '1080p');
+availableQualities = ['720p', '480p'];
+selectEpisode(0);
+await tick();
+check('Missing quality uses nearest lower available resolution', selectedQuality === '720p');
+check('Fallback does not overwrite original preference', localStorage.getItem('dubtv-plus-quality') === '1080p');
+const fallbackClicks = qualityClicks;
+video.dispatchEvent(new Event('loadstart'));video.dispatchEvent(new Event('canplay'));await tick();
+check('Fallback source is not reloaded when already selected', qualityClicks === fallbackClicks && !document.querySelector('#quality-menu'));
+availableQualities = ['1080p', '720p', '480p'];
+video.dispatchEvent(new Event('loadstart'));
+await tick();
+check('Preferred quality returns even when new source keeps fallback badge', selectedQuality === '1080p');
+selectEpisode(0);
+await tick();
+check('Preferred quality returns when available again', selectedQuality === '1080p');
+video.dispatchEvent(new Event('loadstart'));
+await tick();
+setQuality('Авто');
+video.dispatchEvent(new Event('loadedmetadata'));
+await tick();
+check('Late native quality reset after loadstart is repaired', selectedQuality === '1080p');
+openQuality();
+Array.from(document.querySelectorAll('#quality-menu button')).find(b => b.textContent === 'Авто').click();
+selectEpisode(0);
+await tick();
+check('Auto mode can be selected and remembered', selectedQuality === 'Авто' && localStorage.getItem('dubtv-plus-quality') === 'Авто');
+video.playbackRate = 1.5;
+document.cookie = 'player_speed=1.5;path=/';
+await tick();
+check('Native speed changes are respected', video.playbackRate === 1.5);
+video.playbackRate = 1;
+await tick();
+check('Late rate reset is repaired without overwriting preference', video.playbackRate === 1.5 && document.cookie.includes('player_speed=1.5'));
+video.load();
+await tick();
+check('Real media load() keeps the preferred default rate', video.playbackRate === 1.5);
+document.cookie = 'player_speed=1;path=/';
+video.playbackRate = 1;
+await tick();
+check('User can return to 1×', video.playbackRate === 1 && video.defaultPlaybackRate === 1);
+document.cookie = 'player_speed=999;path=/';
+video.dispatchEvent(new Event('canplay'));
+await tick();
+check('Invalid persisted rate falls back safely', video.playbackRate === 1);
+document.cookie = 'player_speed=2;path=/';
+video.replaceWith(document.createElement('video'));
+await tick();
+video = document.querySelector('video');
+check('Replacement video receives speed', video.playbackRate === 2);
+document.querySelector('#controls').append(document.createElement('span'));
+await tick();
+check('Rerenders do not duplicate navigation', document.querySelectorAll('[aria-label="Следующая серия"]').length === 1);
+document.querySelector('#next').remove();
+await tick();
+check('Missing native navigation disables action', !next() || next().disabled);
+history.pushState(null, '', '/catalog');
+document.querySelector('main').append(document.createElement('div'));
+await tick();
+check('SPA navigation removes player additions outside releases', !next());
+document.title = `${failed ? 'FAIL' : 'PASS'}: ${passed} passed, ${failed} failed`;
+</script>
+</html>

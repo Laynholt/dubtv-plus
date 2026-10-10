@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#18181c"/>
+  <g font-family="Arial,sans-serif" font-weight="900" font-size="39" text-anchor="middle">
+    <g fill="#b83b2b" transform="translate(2 3)"><text x="64" y="56">DUB</text><text x="48" y="96">TV</text></g>
+    <g fill="#f4f2ee"><text x="64" y="56">DUB</text><text x="48" y="96">TV</text></g>
+  </g>
+  <path d="M96 70v26m-13-13h26" stroke="#ff6842" stroke-width="8" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,32 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Library tests</title>
+<style>body{background:#18181c;color:white;font:16px system-ui}.grid{display:grid;grid-template-columns:repeat(3,200px);gap:12px}a{display:block;color:inherit}img{width:100px;height:80px}button{padding:8px}</style>
+<div id="panel"></div><main><div class="grid"><a href="/release/alpha"><img alt="Alpha"><h3>Alpha</h3></a><a href="/release/beta"><img alt="Beta"><h3>Beta</h3></a><a href="/release/gamma"><img alt="Gamma"><h3>Gamma</h3></a></div></main><ol id="results"></ol>
+<script>
+history.replaceState(null,'','/catalog');localStorage.removeItem('dubtv-plus-hidden');localStorage.removeItem('dubtv-plus-hide-completed');
+let calls=0,fail=false;
+const lists={WATCHING:[{id:'a',slug:'alpha',titleRu:'Alpha'}],PLANNED:[],COMPLETED:[{id:'b',slug:'beta',titleRu:'Beta'}],ON_HOLD:[],DROPPED:[]};
+window.fetch=async(url,options)=>{calls++;if(url!=='/profile'||options?.method&&options.method!=='GET')throw Error('Unexpected request');if(fail)throw Error('Offline');return {ok:true,text:async()=>'<script>self.__next_f.push('+JSON.stringify([1,'5:'+JSON.stringify(['$','$L1',null,{data:{user:{id:'user-a'},lists}}])+'\n'])+')<\/script>'};};
+</script><script src="/src/library.js?v=100"></script><script type="module">
+let passed=0,failed=0;function check(n,v){const li=document.createElement('li');li.textContent=(v?'PASS: ':'FAIL: ')+n;document.querySelector('#results').append(li);v?passed++:failed++;}
+const tick=()=>new Promise(r=>setTimeout(r,80));
+const refresh=typeof createLibraryTools==='function'?createLibraryTools(document.querySelector('#panel')):()=>{};
+refresh();await tick();
+check('Native statuses appear on matching cards',document.querySelector('[href="/release/alpha"]')?.textContent.includes('Смотрю')&&document.querySelector('[href="/release/beta"]')?.textContent.includes('Просмотрено'));
+const hide=document.querySelector('#dtvp-hide-completed');if(hide){hide.checked=true;hide.dispatchEvent(new Event('change'));}refresh();await tick();
+check('Completed card hidden, unknown card retained',document.querySelector('[href="/release/beta"]')?.classList.contains('dtvp-hidden-card')&&!document.querySelector('[href="/release/gamma"]')?.classList.contains('dtvp-hidden-card'));
+const choice=document.querySelector('#dtvp-hide-choice');if(choice)choice.value='gamma';document.querySelector('#dtvp-hide-title')?.click();refresh();await tick();
+check('Not interested hides card',document.querySelector('[href="/release/gamma"]')?.classList.contains('dtvp-hidden-card'));
+check('Hidden title is persisted',localStorage.getItem('dubtv-plus-hidden')?.includes('gamma'));
+document.querySelector('[data-restore-slug="gamma"]')?.click();refresh();await tick();
+check('Restore makes card visible',!document.querySelector('[href="/release/gamma"]')?.classList.contains('dtvp-hidden-card'));
+refresh();refresh();await tick();check('DOM refresh does not refetch lists',calls===1);
+check('No duplicate card actions',document.querySelectorAll('#dtvp-card-action').length===1);
+history.pushState(null,'','/profile');refresh();await tick();
+check('Profile cards are not hidden or decorated',!document.querySelector('.dtvp-hidden-card')&&!document.querySelector('.dtvp-status'));
+history.pushState(null,'','/catalog');fail=true;document.querySelector('#dtvp-refresh-lists')?.click();await tick();refresh();
+check('List failure is visible and retryable',document.querySelector('#dtvp-list-state')?.textContent.includes('Не удалось')&&!document.querySelector('#dtvp-refresh-lists')?.disabled);
+check('List failure never hides completed from stale data',!document.querySelector('[href="/release/beta"]')?.classList.contains('dtvp-hidden-card'));
+fail=false;document.querySelector('#dtvp-refresh-lists')?.click();await tick();check('Retry recovers statuses',document.querySelector('[href="/release/alpha"]')?.textContent.includes('Смотрю'));
+history.pushState(null,'','/ongoing');refresh();await tick();check('Completed filter is scoped to catalogue',!document.querySelector('[href="/release/beta"]')?.classList.contains('dtvp-hidden-card'));
+document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+</script></html>
