@@ -1,4 +1,4 @@
-# DubTV+ 1.0.0
+# DubTV+
 
 <img src="assets/icon.svg" width="80" alt="Логотип DubTV+">
 
