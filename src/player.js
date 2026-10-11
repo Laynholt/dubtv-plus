@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DubTV+
 // @namespace    dubtv-plus
-// @version      1.0.0
+// @version      1.1.0
 // @author       laynholt
 // @icon         data:image/svg+xml;base64,__ICON__
 // @homepageURL  https://github.com/Laynholt/dubtv-plus
@@ -29,6 +29,9 @@
   let qualityRestore;
   let applyingQuality = false;
   // LIBRARY_MODULE
+  // DOWNLOAD_MODULE
+  // AUTOPLAY_MODULE
+  // RELEASE_LAYOUT_MODULE
 
   function readOptions() {
     try {
@@ -54,25 +57,26 @@
   }
   const style = document.createElement('style');
   style.textContent = `
-    #dubtv-plus-open{position:fixed;right:16px;bottom:80px;z-index:10001;display:flex;align-items:center;gap:8px;background:#252529;color:#fff;border:1px solid #777;border-radius:10px;padding:8px 12px;font:600 13px system-ui;cursor:grab;touch-action:none;user-select:none}
+    #dubtv-plus-open{position:fixed;right:16px;bottom:80px;z-index:10001;display:flex;align-items:center;justify-content:center;background:var(--color-surface,#141418);color:var(--color-text-primary,#f0f0f0);border:1px solid var(--color-border,#2a2a32);border-radius:10px;padding:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:grab;touch-action:none;user-select:none;box-shadow:0 4px 16px #0005;transition:background .15s}
+    #dubtv-plus-open:hover{background:var(--color-surface-hover,#1c1c22)}
     #dubtv-plus-open:active{cursor:grabbing}#dubtv-plus-open img{width:28px;height:28px;pointer-events:none}
-    .dtvp-dialog{position:fixed;inset:0;margin:auto;color:#eee;background:#18181c;border:1px solid #45454e;border-radius:16px;padding:24px;width:min(560px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:85dvh;overflow:auto;font:14px/1.5 system-ui;box-sizing:border-box;box-shadow:0 20px 80px #0008;color-scheme:dark;text-align:left}
-    .dtvp-dialog *{box-sizing:border-box}.dtvp-dialog::backdrop{background:#0009}.dtvp-dialog h2{font:700 22px/1.3 system-ui;margin:0}.dtvp-dialog h3{font:600 15px/1.4 system-ui;margin:20px 0 12px}
+    .dtvp-dialog{position:fixed;inset:0;margin:auto;color:var(--color-text-primary,#f0f0f0);background:var(--color-surface,#141418);border:1px solid var(--color-border,#2a2a32);border-radius:16px;padding:24px;width:min(560px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:85dvh;overflow:auto;font-family:inherit;font-size:14px;line-height:1.5;box-sizing:border-box;box-shadow:0 20px 80px #0008;color-scheme:dark;text-align:left}
+    .dtvp-dialog *{box-sizing:border-box}.dtvp-dialog::backdrop{background:#0009}.dtvp-dialog h2{font-size:22px;font-weight:700;line-height:1.3;margin:0}.dtvp-dialog h3{font-size:15px;font-weight:600;line-height:1.4;margin:20px 0 12px}
     .dtvp-dialog label{display:flex;align-items:center;gap:12px;margin:14px 0;min-width:0}.dtvp-dialog .dtvp-field{display:flex;flex-direction:column;align-items:stretch;gap:8px}
-    .dtvp-dialog button,.dtvp-dialog select,.dtvp-dialog input:not([type=checkbox]){background:#2a2a31;color:#eee;border:1px solid #51515e;border-radius:8px;padding:9px 12px;font:inherit;min-width:0;max-width:100%}
-    .dtvp-dialog select,.dtvp-dialog input:not([type=checkbox]){width:100%}.dtvp-dialog input[type=checkbox]{appearance:auto;width:18px;height:18px;flex:0 0 18px;margin:0;accent-color:#eb512c}.dtvp-dialog button{cursor:pointer;white-space:normal}.dtvp-dialog button:disabled{opacity:.5;cursor:default}
-    .dtvp-dialog :focus-visible,#dubtv-plus-open:focus-visible,.dtvp-expand:focus-visible{outline:2px solid #ff886a;outline-offset:3px}
-    .dtvp-dialog p{color:#b9b9c4;margin:12px 0;overflow-wrap:anywhere}.dtvp-dialog a{color:#ff997e;text-decoration:underline}.dtvp-dialog [hidden]{display:none!important}
+    .dtvp-dialog button,.dtvp-dialog select,.dtvp-dialog input:not([type=checkbox]){background:var(--color-background,#0a0a0c);color:inherit;border:1px solid var(--color-border,#2a2a32);border-radius:8px;padding:9px 12px;font:inherit;min-width:0;max-width:100%;transition:background .15s,border-color .15s}
+    .dtvp-dialog select,.dtvp-dialog input:not([type=checkbox]){width:100%}.dtvp-dialog input[type=checkbox]{appearance:auto;width:18px;height:18px;flex:0 0 18px;margin:0;accent-color:var(--color-primary,#d6381c)}.dtvp-dialog button{cursor:pointer;white-space:normal;background:var(--color-surface-hover,#1c1c22);border-color:transparent}.dtvp-dialog button:hover{background:#ffffff0d}.dtvp-dialog button:disabled{opacity:.5;cursor:default}
+    .dtvp-dialog :focus-visible,#dubtv-plus-open:focus-visible,.dtvp-expand:focus-visible{outline:2px solid var(--color-primary-light,#f08a73);outline-offset:3px}
+    .dtvp-dialog p{color:#9a9aaa;margin:12px 0;overflow-wrap:anywhere}.dtvp-dialog a{color:var(--color-primary-light,#f08a73);text-decoration:underline}.dtvp-dialog [hidden]{display:none!important}
     .dtvp-heading,.dtvp-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}.dtvp-heading{margin-bottom:20px}.dtvp-heading h2{display:flex;align-items:center;gap:10px}.dtvp-heading img{width:40px;height:40px}
-    .dtvp-actions{justify-content:flex-end;margin-top:20px;flex-wrap:wrap}.dtvp-dialog .dtvp-primary{background:#ca3c1c;border-color:#ed5937;color:white}
-    .dtvp-tabs{display:flex;gap:6px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid #35353e}.dtvp-dialog [role=tab]{flex:1;padding:8px;font-size:13px}.dtvp-dialog [aria-selected=true]{background:#562a22;border-color:#eb6949;color:#ffb39e}
-    .dtvp-shortcuts{display:grid;grid-template-columns:max-content 1fr;gap:10px 16px}.dtvp-shortcuts dt{font-weight:600;color:#ffb39e}.dtvp-shortcuts dd{margin:0}
+    .dtvp-actions{justify-content:flex-end;margin-top:20px;flex-wrap:wrap}.dtvp-dialog .dtvp-primary{background:var(--color-primary,#d6381c);border-color:transparent;color:white}.dtvp-dialog .dtvp-primary:hover{background:#bd3018}
+    .dtvp-tabs{display:flex;gap:6px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--color-border,#2a2a32)}.dtvp-dialog [role=tab]{flex:1;padding:8px;font-size:13px;background:transparent;color:#9a9aaa}.dtvp-dialog [aria-selected=true]{background:#d6381c1a;border-color:transparent;color:var(--color-primary-light,#f08a73)}
+    .dtvp-shortcuts{display:grid;grid-template-columns:max-content 1fr;gap:10px 16px}.dtvp-shortcuts dt{font-weight:600;color:var(--color-primary-light,#f08a73)}.dtvp-shortcuts dd{margin:0}
     @media(max-width:420px){.dtvp-dialog{padding:18px}.dtvp-dialog [role=tab]{flex-basis:40%}.dtvp-heading{align-items:flex-start}}
     #dubtv-plus-remaining{display:block;font:11px system-ui;color:white;white-space:nowrap;padding:0}
     #dubtv-plus-remaining[hidden]{display:none!important}
-    #dubtv-plus-undo{position:absolute;bottom:95px;left:16px;z-index:35;padding:9px 12px;background:#222e;color:#fff;border:1px solid #999;border-radius:6px;font:14px system-ui;cursor:pointer}
+    #dubtv-plus-undo{position:absolute;bottom:95px;left:16px;z-index:35;padding:9px 12px;background:#141418ee;color:#fff;border:1px solid var(--color-border,#2a2a32);border-radius:6px;font:14px system-ui;cursor:pointer}
     #dubtv-plus-undo[hidden]{display:none!important}
-    .dtvp-collapsed-content{display:none!important}.dtvp-expand{font:12px system-ui;color:inherit;background:transparent;border:1px solid #777;border-radius:4px;padding:4px 8px;margin-left:10px;cursor:pointer}
+    .dtvp-collapsed-content{display:none!important}.dtvp-expand{font:12px system-ui;color:inherit;background:transparent;border:1px solid var(--color-border,#2a2a32);border-radius:4px;padding:4px 8px;margin-left:10px;cursor:pointer}
     .dtvp-player:not(:fullscreen){max-height:var(--dtvp-height,85vh)!important}
     .dtvp-no-glow .dtvp-glow{display:none!important}
     html.dtvp-theatre,html.dtvp-theatre body{overflow-y:auto!important}
@@ -88,7 +92,7 @@
   settings.id = 'dubtv-plus-settings';
   settings.className = 'dtvp-dialog';
   settings.setAttribute('aria-label', 'Настройки DubTV+');
-  settings.innerHTML = '<div class="dtvp-heading"><h2><img src="data:image/svg+xml;base64,__ICON__" alt="">DubTV+</h2></div><div class="dtvp-tabs" role="tablist" aria-label="Разделы настроек"></div>';
+  settings.innerHTML = '<div class="dtvp-heading"><h2><img src="data:image/svg+xml;base64,__ICON__" alt="">Настройки</h2></div><div class="dtvp-tabs" role="tablist" aria-label="Разделы настроек"></div>';
   settings.querySelector('.dtvp-heading').append(button('Закрыть', () => settings.close()));
   const panels = {};
   for (const [id, title] of [['player','Плеер'],['interface','Интерфейс'],['library','Каталог'],['about','О скрипте']]) {
@@ -131,6 +135,9 @@
   checkbox(panels.interface, 'description', 'Сворачивать описание');
   checkbox(panels.interface, 'comments', 'Сворачивать комментарии');
   checkbox(panels.interface, 'related', 'Сворачивать похожие тайтлы');
+  checkbox(panels.interface, 'shikimoriRip', 'Открывать Shikimori на shikimori.rip');
+  checkbox(panels.interface, 'showListActions', 'Показывать «Добавить в…» на карточках', true);
+  checkbox(panels.interface, 'showHideActions', 'Показывать «Не интересно» на карточках', true);
   checkbox(panels.player, 'hotkeys', 'Горячие клавиши DubTV+', true);
   checkbox(panels.player, 'remaining', 'Реальное оставшееся время', true);
   checkbox(panels.player, 'undo', 'Предлагать отмену перемотки', true);
@@ -146,15 +153,21 @@
   const help = document.createElement('div');
   help.innerHTML = '<h3>Горячие клавиши</h3><dl class="dtvp-shortcuts"><dt>X / C</dt><dd>Скорость −0,25× / +0,25×</dd><dt>G</dt><dd>Перейти к времени</dd><dt>Shift + ← / →</dt><dd>Предыдущая / следующая серия</dd><dt>T / Esc</dt><dd>Кинотеатр / выход</dd><dt>Z</dt><dd>Отменить перемотку</dd></dl><p>Работают и с русской раскладкой. В полях ввода клавиши не перехватываются.</p>';
   panels.player.append(help);
-  panels.about.innerHTML = '<h3>DubTV+ · 1.0.0</h3><p>Автор: <a href="https://github.com/Laynholt" target="_blank" rel="noopener noreferrer">laynholt</a></p><p>Неофициальные улучшения DubTV для Violentmonkey.</p><p><a href="https://github.com/Laynholt/dubtv-plus" target="_blank" rel="noopener noreferrer">Исходный код</a> · <a href="https://github.com/Laynholt/dubtv-plus/releases" target="_blank" rel="noopener noreferrer">Релизы</a></p><p>Обновления из релизов проверяет Violentmonkey. Настройки и скрытые тайтлы сохраняются в этом браузере.</p>';
+  panels.about.innerHTML = '<h3>DubTV+ · 1.1.0</h3><p>Автор: <a href="https://github.com/Laynholt" target="_blank" rel="noopener noreferrer">laynholt</a></p><p>Неофициальные улучшения DubTV для Violentmonkey.</p><p><a href="https://github.com/Laynholt/dubtv-plus" target="_blank" rel="noopener noreferrer">Исходный код</a> · <a href="https://github.com/Laynholt/dubtv-plus/releases" target="_blank" rel="noopener noreferrer">Релизы</a></p><p>Обновления из релизов проверяет Violentmonkey. Настройки и скрытые тайтлы сохраняются в этом браузере.</p>';
+  const report = document.createElement('a'); report.textContent='Сообщить об ошибке'; report.id='dtvp-report-bug'; report.target='_blank'; report.rel='noopener noreferrer';
+  report.href='https://github.com/Laynholt/dubtv-plus/issues/new?'+new URLSearchParams({title:'[Ошибка] ',body:'### Устройство и версии\n- Устройство:\n- ОС и версия:\n- Браузер и версия:\n- Менеджер скриптов и версия:\n- DubTV+: 1.1.0\n\n### Ссылка на тайтл или страницу\n\n### Как повторить\n1. \n2. \n\n### Ожидаемое поведение\n\n### Что происходит\n\n### Скриншоты или видео\nПрикрепите файлы к этому сообщению или добавьте ссылки.\n'});
+  const sourceLinks=panels.about.querySelector('a[href$="/releases"]').parentElement;sourceLinks.append(' · ',report);
   document.body.append(settings);
-  const refreshLibrary = typeof createLibraryTools === 'function' ? createLibraryTools(panels.library) : () => {};
+  const refreshDownloads = createDownloadTools(panels.player);
+  const refreshAutoplay = createAutoplayTools();
+  const refreshReleaseLayout = createReleaseLayoutTools();
+  const refreshLibrary = typeof createLibraryTools === 'function' ? createLibraryTools(panels.library, options) : () => {};
   let dragged = false;
   const openSettings = button('', event => {
     if (dragged && event.detail !== 0) { dragged = false; return; }
     settings.showModal();
   });
-  openSettings.innerHTML = '<img src="data:image/svg+xml;base64,__ICON__" alt="" draggable="false"><span>DubTV+</span>';
+  openSettings.innerHTML = '<img src="data:image/svg+xml;base64,__ICON__" alt="" draggable="false">';
   openSettings.id = 'dubtv-plus-open';
   openSettings.setAttribute('aria-label', 'Настройки DubTV+');
   openSettings.title = 'Открыть настройки · перетащите для перемещения · Alt + стрелки при фокусе';
@@ -342,7 +355,20 @@
   window.addEventListener('blur', finishDrag);
   window.addEventListener('click', event => {
     const control = event.target.closest?.('button');
-    if (!onRelease() || !control || control.getAttribute('aria-label') !== 'Режим кинотеатра') return;
+    if (!onRelease() || !control) return;
+    if (control.getAttribute('aria-label') === 'Полный экран') {
+      const video = activeVideo;
+      // iPad can identify as a Mac when requesting the desktop site.
+      const appleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+      if (!appleMobile || !video?.isConnected || !video.parentElement.contains(control) || document.fullscreenElement || video.webkitDisplayingFullscreen || typeof video.webkitEnterFullscreen !== 'function' || video.webkitSupportsFullscreen === false) return;
+      try {
+        // Keep the native call inside the tap handler to retain user activation.
+        video.webkitEnterFullscreen();
+        event.preventDefault(); event.stopImmediatePropagation();
+      } catch { /* Let the site's fullscreen handler run if native entry is unavailable. */ }
+      return;
+    }
+    if (control.getAttribute('aria-label') !== 'Режим кинотеатра') return;
     event.preventDefault(); event.stopImmediatePropagation(); toggleTheatre();
   }, true);
   async function changeSpeed(delta) {
@@ -466,9 +492,9 @@
     navigation.setAttribute('role', 'group');
     navigation.setAttribute('aria-label', 'Переключение серий');
     navigation.style.cssText = 'display:inline-flex;flex-shrink:0;align-items:center';
-    for (const [label, title, symbol] of [
-      ['Пред.', 'Предыдущая серия', '⏮'],
-      ['След.', 'Следующая серия', '⏭'],
+    for (const [label, title, path] of [
+      ['Пред.', 'Предыдущая серия', 'M5 4h3v16H5zM19 4v16L9 12z'],
+      ['След.', 'Следующая серия', 'M16 4h3v16h-3zM5 4l10 8-10 8z'],
     ]) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -476,8 +502,8 @@
       button.setAttribute('aria-label', title);
       button.dataset.nativeLabel = label;
       button.className = playButton.className;
-      button.style.cssText = 'width:36px;height:40px;flex-shrink:0;font-size:21px;line-height:1';
-      button.textContent = symbol;
+      button.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:36px;height:40px;flex-shrink:0';
+      button.innerHTML = `<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="${path}"/></svg>`;
       button.addEventListener('click', event => {
         event.stopPropagation();
         const target = nativeNavigation(label);
@@ -489,6 +515,22 @@
     return navigation;
   }
 
+  const changedShikimoriLinks = new WeakMap();
+  function refreshPageInterface() {
+    for (const field of document.querySelectorAll('main textarea[placeholder="Написать комментарий..."],#main textarea[placeholder="Написать комментарий..."]')) if(field.rows!==6)field.rows=6;
+    for (const link of document.querySelectorAll('a[href]')) {
+      const changed=changedShikimoriLinks.get(link);
+      if (!options.shikimoriRip) {
+        if(changed && link.href===changed.replacement)link.href=changed.original;
+        changedShikimoriLinks.delete(link);continue;
+      }
+      let url;try{url=new URL(link.href);}catch{continue;}
+      if (url.hostname!=='shikimori.one' || !['http:','https:'].includes(url.protocol))continue;
+      const original=link.href;url.hostname='shikimori.rip';link.href=url.href;
+      changedShikimoriLinks.set(link,{original,replacement:link.href});
+    }
+  }
+
   function refresh() {
     if (route !== location.pathname) {
       route = location.pathname; theatre = false;
@@ -496,7 +538,7 @@
       activeVideo = null; settings.close(); jump.close();
       document.querySelectorAll('.dtvp-collapsed-content').forEach(e => e.classList.remove('dtvp-collapsed-content'));
     }
-    refreshLibrary();
+    refreshLibrary(); refreshDownloads(); refreshReleaseLayout(); refreshAutoplay();refreshPageInterface();
     let navigation = document.getElementById(navigationId);
     if (!onRelease()) {
       if (activeVideo) clearUndo(activeVideo);

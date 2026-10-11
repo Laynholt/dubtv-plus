@@ -1,0 +1,41 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Action settings tests</title>
+<style>body{background:#0a0a0c;color:#f0f0f0;font:14px system-ui;margin:24px}main{display:flex;gap:24px}a{display:block;width:240px;color:inherit}img{width:62px;height:93px}button,input{font:inherit}#results{margin-top:24px}</style>
+<main><a href="/release/alpha"><img alt="Alpha"><h3>Alpha</h3></a><a href="/release/beta"><img alt="Beta"><h3>Beta</h3></a></main><ol id="results"></ol>
+<script>
+const fixture=new URLSearchParams(location.search),persisted=fixture.has('persisted'),demo=fixture.has('demo');history.replaceState(null,'','/catalog');
+if(!persisted&&!demo)localStorage.setItem('dubtv-plus-options','{}');
+localStorage.removeItem('dubtv-plus-hidden');localStorage.removeItem('dubtv-plus-hide-completed');localStorage.removeItem('dubtv-plus-blocked-genres');
+const stream=data=>'<script>self.__next_f.push('+JSON.stringify([1,'5:'+JSON.stringify(data)+'\n'])+')<\/script>';
+window.fetch=async url=>({ok:true,text:async()=>stream(url==='/catalog'?{releases:[{id:'a',slug:'alpha',genres:[]},{id:'b',slug:'beta',genres:[]}]}:{user:{id:'user'},lists:{WATCHING:[],PLANNED:[],COMPLETED:[],ON_HOLD:[],DROPPED:[]}})});
+window.ready=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/dubtv-plus.user.js?test='+Date.now();script.onload=resolve;script.onerror=reject;document.head.append(script);});
+</script><script type="module">
+await window.ready;const tick=()=>new Promise(r=>setTimeout(r,100));await tick();let passed=0,failed=0;
+function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
+const settings=document.querySelector('#dubtv-plus-settings'),add=document.querySelector('[data-option="showListActions"]'),hide=document.querySelector('[data-option="showHideActions"]'),alpha=document.querySelector('[href="/release/alpha"]'),beta=document.querySelector('[href="/release/beta"]'),tools=document.querySelector('#dtvp-card-tools'),menu=document.querySelector('#dtvp-status-menu');
+const hover=()=>alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+async function toggle(input,value){input.checked=value;input.dispatchEvent(new Event('change'));await tick();}
+async function route(path){history.pushState(null,'',path);window.dispatchEvent(new PopStateEvent('popstate'));await tick();}
+check('Interface settings contain two independent card-action switches',add?.closest('#dtvp-panel-interface')&&hide?.closest('#dtvp-panel-interface'));
+if(add&&hide){
+ if(persisted){
+  check('Disabled action preferences survive a fresh script load',!add.checked&&!hide.checked);hover();check('Saved preferences suppress catalog hover controls',tools.hidden);
+  await route('/ongoing');check('Saved preferences suppress ongoing buttons',!document.querySelector('.dtvp-ongoing-add'));
+ }else if(demo){document.querySelector('#dubtv-plus-open').click();document.querySelector('#dtvp-tab-interface').click();document.querySelector('#results').hidden=true;}
+ else{
+  check('Both card actions stay enabled by default',add.checked&&hide.checked);hover();check('Default catalog exposes both actions',!tools.hidden&&!document.querySelector('#dtvp-card-action').hidden&&!document.querySelector('#dtvp-status-choice').hidden);
+  await toggle(hide,false);hover();check('Turning off not-interested leaves Add to available',document.querySelector('#dtvp-card-action').hidden&&!document.querySelector('#dtvp-status-choice').hidden);
+  document.querySelector('#dtvp-status-choice').click();await toggle(add,false);hover();check('Turning off Add to closes its menu and removes the empty toolbar',menu.hidden&&tools.hidden);
+  await toggle(hide,true);hover();check('Turning on not-interested leaves Add to disabled',!document.querySelector('#dtvp-card-action').hidden&&document.querySelector('#dtvp-status-choice').hidden);
+  await toggle(hide,false);await route('/');hover();check('Homepage has no empty toolbar when not-interested is disabled',tools.hidden);
+  await route('/ongoing');check('Disabled Add to removes ongoing buttons and padding',!document.querySelector('.dtvp-ongoing-add')&&!document.querySelector('.dtvp-ongoing-card'));
+  await toggle(add,true);check('Enabling Add to restores all ongoing buttons once',document.querySelectorAll('.dtvp-ongoing-add').length===2);hover();check('Ongoing still has no not-interested hover action',tools.hidden);
+  const ongoingButton=alpha.nextElementSibling;ongoingButton.click();check('Restored ongoing button opens categories',!menu.hidden);
+  await toggle(add,false);check('Disabling ongoing buttons closes the category menu',menu.hidden&&!document.querySelector('.dtvp-ongoing-add'));
+  await toggle(add,true);await toggle(hide,true);await route('/release/test');const section=document.createElement('section');section.innerHTML='<h2>Похожее</h2>';document.querySelector('main').append(section);section.append(alpha,beta);await tick();hover();check('Reenabled actions remain available on related titles',!tools.hidden&&!document.querySelector('#dtvp-card-action').hidden&&!document.querySelector('#dtvp-status-choice').hidden);
+  document.querySelector('#dtvp-card-action').click();await tick();await toggle(hide,false);check('Disabling the hide button preserves the existing block list',alpha.classList.contains('dtvp-hidden-card')&&JSON.parse(localStorage.getItem('dubtv-plus-hidden')).alpha==='Alpha');
+  document.querySelector('[data-restore-slug="alpha"]').click();await tick();check('Hidden titles can still be restored with the action disabled',!alpha.classList.contains('dtvp-hidden-card'));
+  await toggle(add,false);const saved=JSON.parse(localStorage.getItem('dubtv-plus-options'));check('Both independent switches are saved as disabled',saved.showListActions===false&&saved.showHideActions===false);
+ }
+}
+if(!demo)document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+</script></html>

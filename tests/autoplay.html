@@ -1,0 +1,48 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Autoplay tests</title>
+<style>body{background:#141418;color:white;font:14px system-ui;padding:24px}</style>
+<main><div id="player"><video></video><button aria-label="Воспроизвести">Воспроизвести</button></div><span id="episode">Серия 1</span></main><ol id="results"></ol>
+<script src="/src/autoplay.js"></script><script>
+history.replaceState(null,'','/release/autoplay-test');
+let passed=0,failed=0,clicks=0,ready=0,paused=true,blocked=false;
+const video=document.querySelector('video'),play=document.querySelector('button');
+Object.defineProperty(video,'readyState',{get:()=>ready});Object.defineProperty(video,'paused',{get:()=>paused});
+play.onclick=()=>{clicks++;if(!blocked){paused=false;play.setAttribute('aria-label','Пауза');video.dispatchEvent(new Event('play'));}};
+function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
+const refresh=createAutoplayTools();refresh();
+check('Waits for the new video to become ready',clicks===0);
+ready=2;video.dispatchEvent(new Event('loadedmetadata'));
+check('Starts on initial title entry through the native handler',clicks===1&&!paused);
+refresh();video.dispatchEvent(new Event('canplay'));
+check('Does not toggle a playing video',clicks===1&&!paused);
+video.dispatchEvent(new Event('loadstart'));video.dispatchEvent(new Event('canplay'));
+paused=true;play.setAttribute('aria-label','Воспроизвести');video.dispatchEvent(new Event('canplay'));refresh();
+check('Manual pause after loadstart while already playing is preserved',clicks===1&&paused);
+video.dispatchEvent(new Event('loadstart'));video.dispatchEvent(new Event('canplay'));refresh();
+check('Quality source reload does not resume a manually paused episode',clicks===1&&paused);
+document.querySelector('#episode').textContent='Серия 2';
+video.dispatchEvent(new Event('loadstart'));video.dispatchEvent(new Event('canplay'));
+check('A new episode starts without a second click',clicks===2&&!paused);
+paused=true;blocked=true;play.setAttribute('aria-label','Воспроизвести');document.querySelector('#episode').textContent='Серия 3';video.dispatchEvent(new Event('loadstart'));video.dispatchEvent(new Event('canplay'));refresh();video.dispatchEvent(new Event('canplay'));
+check('Blocked autoplay is attempted once and keeps the play button',clicks===3&&paused&&play.getAttribute('aria-label')==='Воспроизвести'&&!video.muted);
+history.replaceState(null,'','/watch/autoplay-test');refresh();video.dispatchEvent(new Event('loadstart'));video.dispatchEvent(new Event('canplay'));
+check('Shared watching is untouched',clicks===3);
+history.replaceState(null,'','/release/autoplay-test');blocked=false;paused=false;play.setAttribute('aria-label','Пауза');refresh();
+const next=document.createElement('button');next.textContent='След.';document.querySelector('main').append(next);
+next.click();document.querySelector('#episode').textContent='Серия 4';refresh();
+paused=true;play.setAttribute('aria-label','Воспроизвести');video.dispatchEvent(new Event('loadstart'));video.dispatchEvent(new Event('canplay'));
+check('Next navigation survives old video playing before its loadstart',clicks===4&&!paused);
+paused=true;play.setAttribute('aria-label','Воспроизвести');refresh();video.dispatchEvent(new Event('loadstart'));video.dispatchEvent(new Event('canplay'));
+check('Navigation intent is consumed once and preserves later pauses',clicks===4&&paused);
+const portal=document.createElement('div');portal.className='sm:hidden fixed';portal.innerHTML='<div><div><p>Серии</p><button>Серия 5</button></div></div>';document.body.append(portal);const episodeRow=portal.querySelector('button');
+paused=false;play.setAttribute('aria-label','Пауза');episodeRow.click();document.querySelector('#episode').textContent='Серия 5';refresh();
+paused=true;play.setAttribute('aria-label','Воспроизвести');video.dispatchEvent(new Event('loadstart'));video.dispatchEvent(new Event('canplay'));
+check('Mobile portaled episode selection preserves autoplay intent',clicks===5&&!paused);
+paused=true;play.setAttribute('aria-label','Воспроизвести');episodeRow.setAttribute('aria-current','true');episodeRow.click();video.dispatchEvent(new Event('loadstart'));video.dispatchEvent(new Event('canplay'));
+check('Selecting current episode does not resume a manual pause',clicks===5&&paused);
+history.replaceState(null,'','/release/new-title');const replacement=document.createElement('video');Object.defineProperty(replacement,'readyState',{value:2});video.replaceWith(replacement);blocked=false;refresh();
+check('Replacing the player starts the new video',clicks===6);
+video.dispatchEvent(new Event('loadedmetadata'));
+video.dispatchEvent(new Event('loadstart'));
+check('Detached media callbacks are ignored',clicks===6);
+document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+</script>

@@ -1,0 +1,62 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Mobile catalog tests</title>
+<style>
+body{margin:16px;background:#0a0a0c;color:#f0f0f0;font:13px system-ui}button,input{font:inherit}main{max-width:960px;margin:auto}aside{width:240px}button{background:transparent;color:inherit;padding:7px;border:1px solid #555;border-radius:6px;cursor:pointer}.native-genres{display:flex;flex-wrap:wrap;gap:6px}.border-primary{background:#d6381c33}aside input{width:100%}[role=dialog]{position:fixed;inset:16px;z-index:20;padding:16px;border:1px solid #555;border-radius:14px;background:#141418;overflow:auto}#results{margin-top:24px}.failed{color:#ff8d8d}@media(max-width:1023px){aside{display:none}}@media(min-width:1024px){#open-filters{display:none}}
+</style>
+<div id="panel" hidden></div><main><h1>Каталог</h1><button id="open-filters">Фильтры</button><aside><div id="desktop-genres"><h3>Жанры</h3><input placeholder="Найти жанр"><button>Фэнтези 54</button></div></aside><div id="cards"><a href="/release/alpha"><img alt="Alpha"><h3>Alpha</h3></a><a href="/release/beta"><img alt="Beta"><h3>Beta</h3></a></div></main><ol id="results"></ol><p id="summary"></p>
+<script>
+const options=new URLSearchParams(location.search),integrated=options.has('integrated'),demo=options.has('demo');
+history.replaceState(null,'','/catalog');
+localStorage.removeItem('dubtv-plus-blocked-genres');
+const names=['Фэнтези','Экшен','Драма','Комедия','Романтика','Школа','Приключения','Сверхъестественное','Фантастика','Сёнен','Безумие','Гарем','Военное','Боевые искусства'];
+const releases=[{id:'a',slug:'alpha',genres:['Фэнтези']},{id:'b',slug:'beta',genres:['Комедия']},{id:'c',slug:'other',genres:names}];
+const stream=data=>'<script>self.__next_f.push('+JSON.stringify([1,'5:'+JSON.stringify(data)+'\n'])+')<\/script>';
+window.fetch=async url=>({ok:true,text:async()=>stream(url==='/catalog'?{releases}:{data:{user:{id:'user'},lists:{WATCHING:[],PLANNED:[],COMPLETED:[],ON_HOLD:[],DROPPED:[]}}})});
+let selected=new Set(),nativeClicks=0,modal,source;
+function renderNative(all=false){
+ source.replaceChildren();
+ for(const genre of (all?names:names.slice(0,12))){const b=document.createElement('button');b.type='button';b.textContent=genre;if(selected.has(genre))b.className='border-primary';b.onclick=()=>{nativeClicks++;selected.has(genre)?selected.delete(genre):selected.add(genre);renderNative(true);};source.append(b);}
+ if(!all){const more=document.createElement('button');more.textContent='Все 14';more.onclick=()=>renderNative(true);source.append(more);}
+}
+document.querySelector('#open-filters').onclick=()=>{
+ modal=document.createElement('div');modal.setAttribute('role','dialog');modal.setAttribute('aria-label','Фильтры');modal.setAttribute('aria-modal','true');
+ modal.innerHTML='<h2>Фильтры</h2><button data-reset>Сбросить</button> <button data-close>Закрыть</button><div data-native><h3>Жанры</h3><div class="native-genres"></div></div><button data-apply>Показать тайтлы</button>';
+ source=modal.querySelector('.native-genres');renderNative();modal.querySelector('[data-reset]').onclick=()=>{selected.clear();renderNative(true);};modal.querySelector('[data-close]').onclick=modal.querySelector('[data-apply]').onclick=()=>modal.remove();document.querySelector('main').append(modal);
+};
+window.ready=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=(integrated?'/dubtv-plus.user.js':'/src/library.js')+'?test='+Date.now();script.onload=resolve;script.onerror=reject;document.head.append(script);});
+</script><script type="module">
+await window.ready;
+let passed=0,failed=0;const tick=()=>new Promise(r=>setTimeout(r,100));
+function check(name,value){const li=document.createElement('li');li.className=value?'passed':'failed';li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
+const refresh=integrated?()=>window.dispatchEvent(new PopStateEvent('popstate')):createLibraryTools(document.querySelector('#panel'));
+const observer=integrated?null:new MutationObserver(refresh);observer?.observe(document.querySelector('main'),{subtree:true,childList:true,attributes:true,attributeFilter:['class','aria-pressed']});
+refresh();await tick();
+const excluded=document.querySelector('#dtvp-genre-block'),desktop=document.querySelector('#desktop-genres'),mobile=innerWidth<1024;
+check('Exclusions follow the desktop genres inside the sidebar',excluded?.previousElementSibling===desktop);
+check('Closed mobile filters leave exclusions out of the catalog',!mobile||getComputedStyle(excluded.parentElement).display==='none');
+document.querySelector('#open-filters').click();await tick();
+check('Open filters contain the single existing exclusions block',modal.contains(excluded)&&document.querySelectorAll('#dtvp-genre-block').length===1);
+const search=modal.querySelector('#dtvp-native-genre-search input'),toggle=modal.querySelector('.dtvp-native-genre-toggle');
+check('Native mobile genres have an accessible search field',search?.getAttribute('aria-label')==='Поиск жанра');
+check('All native genre handlers remain available after expansion',source.querySelectorAll('button').length===14);
+check('Mobile genres use rows instead of chips',getComputedStyle(source).display==='grid');
+check('Mobile genres initially show ten popular rows',source.querySelectorAll('button:not([hidden])').length===10);
+if(search){search.value='БОЕВЫЕ';search.dispatchEvent(new Event('input'));}
+check('Search finds a genre outside the popular rows',source.querySelectorAll('button:not([hidden])').length===1&&source.querySelector('button:not([hidden])')?.textContent==='Боевые искусства');
+const martial=[...source.querySelectorAll('button')].find(b=>b.textContent==='Боевые искусства');martial?.click();await tick();
+check('Genre choice still invokes the original site handler exactly once',nativeClicks===1&&selected.has('Боевые искусства'));
+if(search){search.value='';search.dispatchEvent(new Event('input'));}
+check('Selected genre remains visible beyond the first ten',source.querySelector('button:last-child')?.getAttribute('aria-pressed')==='true'&&!source.querySelector('button:last-child').hidden);
+check('Search controls survive native list replacement',modal.querySelector('#dtvp-native-genre-search input')===search);
+toggle?.click();check('All mobile genres can be expanded',source.querySelectorAll('button:not([hidden])').length===14&&toggle?.getAttribute('aria-expanded')==='true');
+toggle?.click();check('Collapsing keeps popular and selected genres',source.querySelectorAll('button:not([hidden])').length===11&&toggle?.getAttribute('aria-expanded')==='false');
+modal.querySelector('[data-reset]').click();await tick();check('Native reset clears selection in compact rows',source.querySelectorAll('button:not([hidden])').length===10&&!source.querySelector('[aria-pressed=true]'));
+modal.querySelector('[data-close]').click();await tick();
+check('Closing filters returns exclusions to the hidden sidebar',excluded.previousElementSibling===desktop&&(!mobile||getComputedStyle(excluded.parentElement).display==='none'));
+document.querySelector('#open-filters').click();await tick();
+check('Reopening creates one set of genre controls',modal.querySelectorAll('#dtvp-native-genre-search').length===1&&modal.querySelectorAll('.dtvp-native-genre-toggle').length===1);
+const fantasy=[...excluded.querySelectorAll('[data-block-genre]')].find(b=>b.dataset.blockGenre==='Фэнтези');fantasy.click();await tick();
+check('Excluding a genre still hides its catalog cards',document.querySelector('[href="/release/alpha"]').classList.contains('dtvp-hidden-card')&&JSON.parse(localStorage.getItem('dubtv-plus-blocked-genres')).includes('Фэнтези'));
+check('Desktop genre search and controls remain intact',desktop.querySelector('input')?.placeholder==='Найти жанр'&&desktop.querySelector('button')?.textContent==='Фэнтези 54');
+if(demo){document.querySelector('#results').hidden=true;document.querySelector('#summary').hidden=true;}
+else{modal.querySelector('[data-close]').click();await tick();history.replaceState(null,'','/release/test');refresh();await tick();check('Leaving the catalog hides exclusions',excluded.hidden);document.querySelector('#summary').textContent=`${passed} passed, ${failed} failed`;document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;}
+</script></html>

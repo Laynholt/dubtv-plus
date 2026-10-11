@@ -1,13 +1,26 @@
 <!doctype html><html lang="ru"><meta charset="utf-8"><title>QoL tests</title>
 <style>body{margin:0;background:#161619;color:white;font:16px system-ui}main{padding:30px}.wrap{max-width:900px;margin:auto;padding:20px}video{width:100%;height:100%;background:linear-gradient(135deg,#243944,#162029)}#player{position:relative;aspect-ratio:16/9;max-height:85vh;background:#000;overflow:hidden}.controls{position:absolute;bottom:0;left:0;right:0;padding:14px;background:linear-gradient(transparent,#000)}.row{display:flex;align-items:center;gap:4px}.row button{width:40px;height:40px;flex-shrink:0;background:transparent;color:white;border:0}.tabular-nums{font:13px system-ui;white-space:nowrap}[role=slider]{height:5px;background:#d95530;margin:12px 0}button{padding:8px}#results{min-height:1000px}</style>
-<header>DubTV fixture</header><main><section id="hero"><div class="pointer-events-none" style="position:absolute">Gradient</div><div class="wrap"><div class="inner"><div class="relative"><div id="player"><video></video><div class="controls"><div role="slider" aria-label="Прогресс воспроизведения" aria-valuemin="0" aria-valuemax="100" aria-valuenow="16"></div><div class="row"><button aria-label="Воспроизвести">▶</button><span class="tabular-nums">4:00 / 24:00</span><div style="flex:1"></div><button aria-label="Режим кинотеатра">▭</button><button aria-label="Полный экран">⛶</button></div></div></div></div><button id="prev" disabled>Пред.</button><button id="next">След.</button></div></div></section>
+<header>DubTV fixture</header><main><section id="hero"><div class="pointer-events-none" style="position:absolute">Gradient</div><div class="wrap"><div class="inner"><div class="relative"><div id="player"><video></video><div class="controls"><div role="slider" aria-label="Прогресс воспроизведения" aria-valuemin="0" aria-valuemax="100" aria-valuenow="16"></div><div class="row"><button aria-label="Воспроизвести">▶</button><span class="tabular-nums">4:00 / 24:00</span><div style="flex:1"></div><button aria-label="Качество: 1080p">1080p</button><button aria-label="Режим кинотеатра">▭</button><button aria-label="Полный экран">⛶</button></div></div></div></div><button id="prev" disabled>Пред.</button><button id="next">След.</button></div></div></section>
 <div><h3>Описание</h3><p id="description">Описание тайтла</p></div><div><div><h3>Комментарии</h3></div><div id="comments">Комментарии здесь</div></div><section><div><div><h2>Похожее</h2></div></div><div>Карточки</div></section><input id="typing"></main><ol id="results"></ol>
 <script>
 history.replaceState(null,'','/release/test'+location.search);
 if(location.search.includes('demo')){
+  const metadata=document.createElement('script');metadata.type='application/json';metadata.textContent='self.__next_f.push('+JSON.stringify([1,'1:'+JSON.stringify({release:{slug:'test',titleRu:'Вайолет Эвергарден',episodes:[1,2].map(n=>({episodeNumber:n,videoUrlM3u8:`https://cdn.example/${n}/master.m3u8`}))}})+'\n'])+')';document.body.append(metadata);
   const card=document.createElement('a');card.href='/release/demo-long-title';
   const title=document.createElement('h3');title.textContent='Вайолет Эвергарден — очень длинное название тайтла для проверки ширины меню';card.append(title);
   document.querySelector('main > section:last-of-type').append(card);
+  if(location.search.includes('download-preview')){
+    const current=document.createElement('span');current.textContent='Серия 2';document.querySelector('main').append(current);
+    const fetchFixture=window.fetch.bind(window);
+    window.showDirectoryPicker=undefined;
+    window.fetch=async(url,options={})=>{
+      if(!String(url).startsWith('https://cdn.example/'))return fetchFixture(url,options);
+      if(String(url).endsWith('master.m3u8'))return new Response('#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1920x1080\nindex.m3u8');
+      if(String(url).endsWith('.m3u8'))return new Response('#EXTM3U\n'+Array.from({length:20},(_,i)=>'#EXTINF:1,\n'+i+'.ts').join('\n')+'\n#EXT-X-ENDLIST');
+      await new Promise((resolve,reject)=>{const timer=setTimeout(resolve,800);options.signal?.addEventListener('abort',()=>{clearTimeout(timer);reject(new DOMException('Aborted','AbortError'));},{once:true});});
+      return fetchFixture('/tests/fixtures/sample-00.ts',options);
+    };
+  }
 }
 if(!location.search.includes('demo'))localStorage.setItem('dubtv-plus-options',JSON.stringify({buttonPosition:{x:42,y:60}}));document.cookie='player_speed=2;path=/';
 const video=document.querySelector('video');
@@ -16,12 +29,24 @@ video.currentTime=240;
 let nativeTheatre=0,episode=1;
 document.querySelector('[aria-label="Режим кинотеатра"]').onclick=()=>nativeTheatre++;
 document.querySelector('#next').onclick=()=>{episode++;video.dispatchEvent(new Event('loadstart'));};
-</script><script src="/dubtv-plus.user.js?v=100"></script><script type="module">
+</script><script src="/dubtv-plus.user.js?v=110-release"></script><script type="module">
 if (!location.search.includes('demo')) {
 const tick=()=>new Promise(r=>setTimeout(r,80));let passed=0,failed=0;
 function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
 const key=(code,target=document.body,extra={})=>target.dispatchEvent(new KeyboardEvent('keydown',{code,bubbles:true,cancelable:true,...extra}));
 await tick();
+const comment=document.createElement('textarea');comment.rows=3;comment.placeholder='Написать комментарий...';comment.value='Черновик';document.querySelector('main').append(comment);
+const shiki=document.createElement('a');shiki.href='https://shikimori.one/animes/123?x=1#details';shiki.textContent='Shikimori';document.querySelector('main').append(shiki);
+const fakeShiki=document.createElement('a');fakeShiki.href='https://shikimori.one.example/animes/123';document.querySelector('main').append(fakeShiki);await tick();
+check('Comment field grows to six rows without changing its draft',comment.rows===6&&comment.value==='Черновик');
+const mirror=document.querySelector('[data-option=shikimoriRip]');mirror.checked=true;mirror.dispatchEvent(new Event('change'));await tick();
+check('Shikimori mirror option preserves path query and fragment',shiki.href==='https://shikimori.rip/animes/123?x=1#details'&&fakeShiki.hostname==='shikimori.one.example'&&JSON.parse(localStorage.getItem('dubtv-plus-options')).shikimoriRip);
+const newShiki=shiki.cloneNode(true);newShiki.href='https://shikimori.one/animes/456';document.querySelector('main').append(newShiki);await tick();
+check('Mirror applies to links added by SPA updates',newShiki.hostname==='shikimori.rip');
+mirror.checked=false;mirror.dispatchEvent(new Event('change'));await tick();
+check('Disabling mirror restores original links',shiki.href==='https://shikimori.one/animes/123?x=1#details'&&newShiki.hostname==='shikimori.one');
+const reportURL=new URL(document.querySelector('#dtvp-report-bug').href),reportBody=reportURL.searchParams.get('body');
+check('Bug report opens a filled GitHub template with device and reproduction fields',reportURL.origin==='https://github.com'&&reportURL.pathname==='/Laynholt/dubtv-plus/issues/new'&&['Устройство','Браузер','Как повторить','Ссылка','Скриншоты','1.1.0'].every(word=>reportBody.includes(word)));
 check('Settings button exists',!!document.querySelector('#dubtv-plus-open'));
 const launcher=document.querySelector('#dubtv-plus-open');
 const initial=launcher.getBoundingClientRect();

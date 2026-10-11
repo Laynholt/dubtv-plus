@@ -1,0 +1,155 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Release layout tests</title>
+<style>
+body{margin:24px;background:#0a0a0c;color:#f0f0f0;font:14px system-ui}main{max-width:900px}a{color:inherit}button{color:inherit;background:#222;border:0;padding:8px}.native-description-heading{font-family:Georgia;font-size:13px;font-weight:600}.native-player{position:relative;background:#171717;height:360px;overflow:hidden}.native-player video{width:100%;height:100%}.native-top{position:absolute;top:0;right:8px}.native-panel{position:absolute;top:56px;bottom:0;right:12px;width:280px}.native-panel[aria-hidden=true]{visibility:hidden}.native-scroll{height:100%;overflow:auto;background:#10101499;mask-image:linear-gradient(black 0px,black calc(100% - 160px),transparent calc(100% - 72px))}.native-controls{position:absolute;bottom:0;left:0;right:0;padding:16px 10px 4px;background:linear-gradient(transparent,#000b)}.native-progress{height:20px}.native-toolbar{display:flex;align-items:center}.native-info{margin-top:16px}aside{padding:20px}#results li{margin:3px 0}.passed{color:#a8e5b7}.failed{color:#ff8d8d}
+</style>
+<main></main><ol id="results"></ol><div id="summary"></div>
+<script>
+const fixtureOptions=new URLSearchParams(location.search),demo=fixtureOptions.has('demo'),integrated=fixtureOptions.has('integrated'),touch=fixtureOptions.has('touch');
+if(touch){const nativeMatchMedia=window.matchMedia.bind(window);window.matchMedia=query=>query==='(hover: none)'?{matches:true}:nativeMatchMedia(query);}
+const savedCollapse=localStorage.getItem('dubtv-plus-franchise-collapsed'),persisted=fixtureOptions.has('persisted');
+if(!demo){if(persisted)localStorage.setItem('dubtv-plus-franchise-collapsed','true');else localStorage.removeItem('dubtv-plus-franchise-collapsed');}
+history.replaceState(null,'','/release/layout-test');
+const main=document.querySelector('main');
+function fixture(){main.innerHTML=`<section><div class="native-player"><video></video><div class="native-top"><button aria-label="Серии: 8 из 12" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor"/></svg><span>Серии</span><span>8/12</span></button></div><div class="native-panel" aria-hidden="true"><div class="native-scroll"><div><button>7 Серия 7 24:01</button><button data-current="true" aria-current="true">8 Серия 8 Сейчас играет · 24:01</button><button>9 Серия 9 24:01</button></div></div></div><div class="native-controls"><div class="native-progress" role="slider" aria-label="Прогресс воспроизведения"></div><div class="native-toolbar"><button aria-label="Воспроизвести">▶</button><span style="flex:1"></span><button aria-label="Качество: Авто">Авто</button><div><button aria-label="Настройки">⚙</button></div><button aria-label="Полный экран">⛶</button></div></div></div><div class="native-info"><div><h3>Серия 8</h3><span>8 из 12</span><button id="prev">Пред.</button><button id="next">След.</button></div><div class="group/eps"><button>Серия 1</button><button>Серия 2</button></div></div></section><div id="description"><h3>Описание</h3><p>Описание текущего релиза</p></div><div id="comments"><div><h3>Комментарии</h3></div><p>Текущие комментарии</p></div><aside><div id="details"><div>ДЕТАЛИ</div><dl><dt>Тип</dt><dd>ТВ Сериал</dd><dt>Статус</dt><dd>Завершён</dd></dl></div><div id="original-franchise"><div>ФРАНШИЗА</div><div><a href="/release/alpha"><img src="/assets/icon.svg" alt="Первый сезон"><div><p>Первый сезон</p><p>ТВ Сериал · 12 эп. · Завершён</p></div></a><a href="/release/beta"><img src="/assets/icon.svg" alt="Второй сезон"><div><p>Второй сезон</p><p>ТВ Сериал · 10 эп. · Онгоинг</p></div></a><a href="https://example.com/release/unsafe"><p>Чужой сайт</p><p>ТВ Сериал</p></a><a href="javascript:alert(1)"><p>Unsafe</p></a></div></div></aside>`;
+bindNative();}
+let toggles=0,prevClicks=0;
+function bindNative(){const root=main.querySelector('.native-player'),button=root.querySelector('button[aria-label^="Серии:"]');button.addEventListener('click',()=>{toggles++;const expanded=button.getAttribute('aria-expanded')!=='true';button.setAttribute('aria-expanded',String(expanded));root.querySelector('.native-panel').setAttribute('aria-hidden',String(!expanded));});main.querySelector('#prev').addEventListener('click',()=>prevClicks++);}
+fixture();
+main.querySelector('#description h3').className='native-description-heading';
+const stream=data=>'<script>self.__next_f.push('+JSON.stringify([1,'5:'+JSON.stringify(data)+'\n'])+')<\/script>';
+const initial={slug:'alpha',titleRu:'Первый сезон',description:'Описание первого сезона. '.repeat(100),genres:['Экшен','Фэнтези'],releaseDate:'2025-04-05T00:00:00.000Z',shikimoriRating:6.95,localRating:6.99,ageRating:'12+',voiceType:'DUB',titleOriginal:'First Season'};
+const metadata=document.createElement('script');metadata.type='application/json';metadata.textContent=stream({franchiseLocal:[initial,{slug:'reference',titleRu:'Второй сезон',description:'$23',genres:['Драма'],releaseDate:'2026-07-07'}]}).replace(/^<script>|<\/script>$/g,'');document.body.append(metadata);
+let calls=[],fail=false,delay=false,releasePending,redirect=false;
+window.fetch=async(url,options)=>{if(url!=='/release/layout-test'&&url!=='/catalog')calls.push({url,credentials:options.credentials});if(delay)await new Promise(resolve=>releasePending=resolve);if(fail)throw Error('Offline');return {ok:true,url:location.origin+(redirect?'/release/different':url),text:async()=>`<main><h1>Второй сезон</h1><a href="/catalog?g=Драма">Драма</a><div><h3>Описание</h3><p>Описание второго сезона</p></div><aside><dl><dt>Тип</dt><dd>ТВ Сериал</dd><dt>Статус</dt><dd>Онгоинг</dd><dt>Озвучка</dt><dd>Закадр</dd><dt>Возраст</dt><dd>16+</dd><dt>Серии</dt><dd>10</dd><dt>Дата</dt><dd>07.07.2026</dd></dl></aside></main>`+stream({release:{slug:'beta',titleRu:'Второй сезон',description:'Описание второго сезона',genres:['Драма'],releaseDate:'2026-07-07',shikimoriRating:7.19,localRating:7.77,voiceType:'DUB'}})+'<script>window.fetchedCodeExecuted=true<\/script>'};};
+</script><script>
+const scripts=integrated?['/dubtv-plus.user.js']:['/src/library.js','/src/release-layout.js'];
+window.fixtureScriptsReady=(async()=>{for(const src of scripts)await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src+'?test='+Date.now();script.onload=resolve;script.onerror=reject;document.head.append(script);});})();
+</script>
+<script type="module">
+let passed=0,failed=0;
+function check(name,value){const li=document.createElement('li');li.className=value?'passed':'failed';li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
+const tick=()=>new Promise(r=>setTimeout(r,160));
+await window.fixtureScriptsReady;
+const refresh=integrated?()=>document.dispatchEvent(new Event('dubtv-layout-test-refresh')):createReleaseLayoutTools();
+const fixtureObserver=integrated?null:new MutationObserver(refresh);fixtureObserver?.observe(main,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-label','aria-expanded','disabled']});
+refresh();await tick();
+if(demo){document.querySelector('#results').hidden=true;document.querySelector('#summary').hidden=true;}
+else if(persisted){check('Saved franchise collapse is restored on new script load',document.querySelector('#dtvp-franchise-rows').hidden&&document.querySelector('#dtvp-franchise-toggle').getAttribute('aria-expanded')==='false');}
+else if(touch){
+const row=document.querySelector('#dtvp-franchise a'),preview=document.querySelector('#dtvp-franchise-preview');
+row.dispatchEvent(new PointerEvent('pointerenter'));row.focus();await tick();check('Device without hover does not open a preview on entry or focus',preview.hidden);
+const tap=new MouseEvent('click',{bubbles:true,cancelable:true,button:0,detail:1});row.dispatchEvent(tap);await tick();
+check('Device without hover opens preview on its first tap',tap.defaultPrevented&&!preview.hidden&&preview.querySelector('.dtvp-preview-open'));
+row.dispatchEvent(new PointerEvent('pointerleave'));row.blur();await tick();check('Coarse-pointer preview stays open after leaving its row',!preview.hidden);
+let navigations=0;preview.querySelector('a').addEventListener('click',event=>{event.preventDefault();navigations++;});preview.querySelector('dl').dispatchEvent(new MouseEvent('click',{bubbles:true,button:0}));check('Coarse-pointer preview tap opens the original release',navigations===1);
+check('Coarse-pointer description is already expanded on first tap',preview.querySelector('details').open&&navigations===1);
+preview.querySelector('summary').click();await tick();check('Coarse-pointer description can collapse without navigation',!preview.querySelector('details').open&&navigations===1);
+main.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));check('Outside touch closes preview without following its link',preview.hidden&&navigations===1);
+row.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,button:0}));await tick();check('Reopening touch preview expands description again',preview.querySelector('details').open);main.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));
+document.querySelector('#dtvp-franchise-toggle').click();row.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,button:0}));await tick();check('Collapsed mobile franchise cannot open previews',preview.hidden);
+}
+else{
+const root=main.querySelector('.native-player'),native=root.querySelector('.native-top button'),panel=root.querySelector('.native-panel'),scroll=panel.firstElementChild,proxy=document.querySelector('#dtvp-series-button');
+check('Series proxy sits next to native quality in bottom toolbar',proxy.nextElementSibling===root.querySelector('[aria-label^="Качество:"]'));
+check('Top native control stays in its React-owned parent',native.parentElement.className==='native-top'&&getComputedStyle(native).display==='none');
+check('Proxy preserves native icon label and count',proxy.textContent==='Серии8/12'&&proxy.querySelector('svg')&&proxy.getAttribute('aria-label')==='Серии: 8 из 12');
+proxy.click();refresh();await tick();
+check('Proxy opens original native panel through its callback',toggles===1&&panel.getAttribute('aria-hidden')==='false'&&proxy.getAttribute('aria-expanded')==='true');
+check('Panel extends from player top to progress slider',parseFloat(getComputedStyle(panel).top)===0&&Math.abs(panel.getBoundingClientRect().bottom-root.querySelector('.native-progress').getBoundingClientRect().top)<1);
+check('Panel native gradient mask is preserved',getComputedStyle(scroll).maskImage.includes('linear-gradient'));
+check('Panel fade is limited to final 32 pixels with 24 pixels of padding',getComputedStyle(scroll).maskImage.includes('32px')&&getComputedStyle(scroll).maskImage.endsWith('rgba(0, 0, 0, 0) 100%)')&&getComputedStyle(scroll).paddingBottom==='24px');
+proxy.click();refresh();await tick();check('Proxy also closes original native panel',toggles===2&&panel.getAttribute('aria-hidden')==='true');
+check('Horizontal carousel hidden with source prev next retained',getComputedStyle(main.querySelector('.native-info')).display==='none'&&main.querySelector('#prev')?.isConnected&&main.querySelector('#next')?.isConnected);
+main.querySelector('#prev').click();check('Retained previous button still calls native handler',prevClicks===1);
+const typeDetail=main.querySelector('#details dd');for(const type of ['ONA','OVA']){typeDetail.textContent=type;refresh();await tick();check(type+' episode carousel is hidden without removing callbacks',getComputedStyle(main.querySelector('.native-info')).display==='none'&&main.querySelector('#prev').isConnected);}typeDetail.textContent='ТВ Сериал';refresh();await tick();
+main.querySelector('.native-info h3').textContent='Часть 1';typeDetail.textContent='Фильм';refresh();await tick();check('Movie part carousel is hidden with native navigation retained',getComputedStyle(main.querySelector('.native-info')).display==='none'&&main.querySelector('#prev').isConnected);main.querySelector('.native-info h3').textContent='Серия 8';typeDetail.textContent='ТВ Сериал';refresh();await tick();
+const rows=[...document.querySelectorAll('#dtvp-franchise a')];
+check('Franchise rows follow description and precede comments',main.querySelector('#description').nextElementSibling.id==='dtvp-franchise'&&document.querySelector('#dtvp-franchise').nextElementSibling.id==='comments');
+check('Franchise rows keep native source order and brief',rows.length===2&&rows[0].textContent==='Первый сезон — ТВ Сериал · 12 эп. · Завершён'&&rows[1].textContent==='Второй сезон — ТВ Сериал · 10 эп. · Онгоинг');
+check('Original franchise hidden without affecting release details',getComputedStyle(main.querySelector('#original-franchise')).display==='none'&&getComputedStyle(main.querySelector('#details')).display!=='none');
+const franchiseHeading=document.querySelector('#dtvp-franchise h3'),descriptionHeading=main.querySelector('#description h3');
+check('Franchise heading matches native description font and size',getComputedStyle(franchiseHeading).fontFamily===getComputedStyle(descriptionHeading).fontFamily&&getComputedStyle(franchiseHeading).fontSize===getComputedStyle(descriptionHeading).fontSize);
+const collapse=document.querySelector('#dtvp-franchise-toggle');collapse.click();await tick();
+check('Franchise can collapse with an accessible persistent toggle',document.querySelector('#dtvp-franchise-rows').hidden&&collapse.getAttribute('aria-expanded')==='false'&&collapse.getAttribute('aria-controls')==='dtvp-franchise-rows'&&localStorage.getItem('dubtv-plus-franchise-collapsed')==='true');
+rows[0].dispatchEvent(new PointerEvent('pointerenter'));rows[0].dispatchEvent(new FocusEvent('focus'));await tick();check('Collapsed franchise cannot open previews',document.querySelector('#dtvp-franchise-preview').hidden&&calls.length===0);
+collapse.click();await tick();check('Franchise expansion restores rows',!document.querySelector('#dtvp-franchise-rows').hidden&&collapse.getAttribute('aria-expanded')==='true');
+check('No metadata is fetched before a preview is requested',calls.length===0);
+rows[0].dispatchEvent(new PointerEvent('pointerenter'));await tick();
+const preview=document.querySelector('#dtvp-franchise-preview');
+check('Pointer preview includes poster title tags rating date and native detail',!preview.hidden&&preview.querySelector('img')&&preview.textContent.includes('Первый сезон')&&preview.textContent.includes('Фэнтези')&&preview.textContent.includes('6.95')&&preview.textContent.includes('05.04.2025')&&preview.textContent.includes('Завершён'));
+check('Complete card metadata avoids a network request',calls.length===0);
+check('Desktop preview is compact with a larger cover and no description',preview.getBoundingClientRect().height<360&&preview.querySelector('img').getBoundingClientRect().width>=96&&!preview.querySelector('details')&&!preview.textContent.includes('Описание первого сезона'));
+const detailLabels=()=>[...preview.querySelectorAll('dt')].map(dt=>dt.textContent);
+check('Cached raw metadata uses the fixed detail order and includes voice type',JSON.stringify(detailLabels())===JSON.stringify(['Дата','Возраст','Озвучка','Shikimori','Рейтинг сайта'])&&preview.textContent.includes('Дубляж'));
+check('Preview does not repeat type episode count or status in its details',!preview.querySelector('dl').textContent.includes('ТВ Сериал')&&!preview.querySelector('dl').textContent.includes('12 эп.')&&!preview.querySelector('dl').textContent.includes('Завершён'));
+rows[0].focus();rows[0].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+check('Keyboard can reach the release link from the franchise row',document.activeElement===preview.querySelector('a'));
+preview.dispatchEvent(new PointerEvent('pointerleave'));await tick();check('Preview stays open while its release link has keyboard focus',!preview.hidden&&document.activeElement===preview.querySelector('a'));
+document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));check('Escape from preview restores row focus and closes it',document.activeElement===rows[0]&&preview.hidden);rows[0].blur();rows[0].dispatchEvent(new PointerEvent('pointerenter'));
+preview.scrollTop=120;preview.dispatchEvent(new Event('scroll'));check('Scrolling preview content keeps it open',!preview.hidden);
+document.dispatchEvent(new Event('scroll'));check('Page scroll dismisses pointer preview',preview.hidden);
+rows[0].dispatchEvent(new PointerEvent('pointerenter'));
+rows[0].dispatchEvent(new PointerEvent('pointerleave'));await tick();check('Pointer exit dismisses preview',preview.hidden);
+rows[1].focus();await tick();
+check('Keyboard focus opens an accessible preview',!preview.hidden&&rows[1].getAttribute('aria-describedby')===preview.id);
+document.dispatchEvent(new Event('scroll'));check('Keyboard focus preview survives automatic page scrolling',!preview.hidden);
+check('Missing metadata lazily fetches only linked same-origin release',calls.length===1&&calls[0].url==='/release/beta'&&calls[0].credentials==='same-origin');
+check('Fetched desktop preview includes details and omits description',!preview.textContent.includes('Описание второго сезона')&&!preview.querySelector('details')&&preview.textContent.includes('Драма')&&preview.textContent.includes('07.07.2026')&&preview.textContent.includes('16+')&&preview.textContent.includes('7.19'));
+check('Fetched HTML keeps the same detail order as cached metadata',JSON.stringify(detailLabels())===JSON.stringify(['Дата','Возраст','Озвучка','Shikimori','Рейтинг сайта']));
+check('Fetched HTML scripts are not executed',!window.fetchedCodeExecuted);
+document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));check('Escape dismisses and clears aria description',preview.hidden&&!rows[1].hasAttribute('aria-describedby'));
+rows[1].blur();rows[1].focus();await tick();check('Repeat preview reuses cached metadata',calls.length===1);
+window.dispatchEvent(new Event('resize'));check('Resize safely dismisses preview',preview.hidden);
+rows[1].blur();rows[0].dispatchEvent(new PointerEvent('pointerenter',{pointerType:'touch'}));
+check('Touch pointer entry does not open a hover preview',preview.hidden);
+rows[0].dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));rows[0].focus();
+check('Touch focus waits for an explicit tap',preview.hidden);
+const tap=new MouseEvent('click',{bubbles:true,cancelable:true,button:0,detail:1});rows[0].dispatchEvent(tap);await tick();
+check('First touch tap opens preview and prevents immediate navigation',tap.defaultPrevented&&!preview.hidden&&preview.querySelector('.dtvp-preview-open')?.pathname==='/release/alpha');
+rows[0].dispatchEvent(new PointerEvent('pointerleave',{pointerType:'touch'}));rows[0].blur();await tick();
+check('Touch preview remains open after finger leaves and row loses focus',!preview.hidden);
+document.dispatchEvent(new Event('scroll'));check('Touch preview stays available while page scrolls',!preview.hidden);
+let previewNavigation=0;const previewLink=preview.querySelector('a');previewLink.addEventListener('click',event=>{event.preventDefault();previewNavigation++;});
+preview.querySelector('dl').dispatchEvent(new MouseEvent('click',{bubbles:true,button:0,detail:1}));
+check('Tapping the touch preview navigates through its release link',previewNavigation===1&&previewLink.pathname==='/release/alpha');
+check('Touch description starts expanded without navigating',preview.querySelector('details').open&&previewNavigation===1);
+const descriptionScroll=preview.querySelector('details p');descriptionScroll.scrollTop=120;descriptionScroll.dispatchEvent(new Event('scroll'));check('Expanded touch description scrolls without closing its preview',descriptionScroll.scrollHeight>descriptionScroll.clientHeight&&descriptionScroll.scrollTop>0&&!preview.hidden);
+preview.querySelector('summary').click();await tick();
+check('Touch description can collapse without navigating',!preview.querySelector('details').open&&previewNavigation===1);
+document.querySelector('#description').dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));
+check('Tapping outside dismisses touch preview without navigation',preview.hidden&&previewNavigation===1);
+rows[0].dispatchEvent(new PointerEvent('pointerenter',{pointerType:'mouse'}));await tick();
+check('A mouse on the same device restores hover preview without description',!preview.hidden&&!preview.querySelector('.dtvp-preview-open')&&!preview.querySelector('details'));
+rows[1].dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',bubbles:true}));rows[1].dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,button:0}));await tick();
+check('Fetched touch preview immediately expands its available description',preview.querySelector('details')?.open&&preview.textContent.includes('Описание второго сезона')&&JSON.stringify(detailLabels())===JSON.stringify(['Дата','Возраст','Озвучка','Shikimori','Рейтинг сайта'])&&calls.length===1);
+rows[0].dispatchEvent(new PointerEvent('pointerenter',{pointerType:'mouse'}));
+window.dispatchEvent(new Event('resize'));
+let mutations=0;const observer=new MutationObserver(()=>{mutations++;if(mutations<30)refresh();});observer.observe(main,{subtree:true,childList:true,attributes:true});
+native.setAttribute('aria-label','Серии: 9 из 12');native.querySelector('span:last-child').textContent='9/12';await tick();
+observer.disconnect();check('Native episode changes update toolbar count',proxy.textContent==='Серии9/12'&&proxy.getAttribute('aria-label')==='Серии: 9 из 12');
+check('Refresh settles without a recursive mutation loop',mutations>0&&mutations<10);
+root.querySelector('[aria-label^="Качество:"]').remove();refresh();await tick();check('Settings wrapper is a safe fallback toolbar anchor',proxy.nextElementSibling?.querySelector('button[aria-label="Настройки"]'));
+const originalNative=native;fixture();refresh();await tick();
+const newNative=main.querySelector('.native-top button');document.querySelector('#dtvp-series-button').click();refresh();await tick();
+check('Player replacement binds proxy to current native callback',originalNative!==newNative&&newNative.getAttribute('aria-expanded')==='true'&&document.querySelectorAll('#dtvp-series-button').length===1);
+check('SPA replacement recreates only current franchise rows',document.querySelectorAll('#dtvp-franchise').length===1&&document.querySelector('#dtvp-franchise').previousElementSibling.id==='description');
+document.querySelector('#dtvp-franchise-toggle').click();fixture();refresh();await tick();check('Franchise collapse survives SPA content replacement',document.querySelector('#dtvp-franchise-rows').hidden&&document.querySelector('#dtvp-franchise-toggle').getAttribute('aria-expanded')==='false');document.querySelector('#dtvp-franchise-toggle').click();
+main.querySelector('#description').remove();refresh();await tick();check('Release without description places franchise in main information before comments',document.querySelector('#dtvp-franchise').nextElementSibling===main.querySelector('#comments')&&document.querySelector('#dtvp-franchise').parentElement===main&&getComputedStyle(main.querySelector('#original-franchise')).display==='none');
+main.querySelector('.group\\/eps').replaceChildren(main.querySelector('.group\\/eps button'));newNative.remove();refresh();await tick();check('Singleton carousel is hidden without needing the native series dropdown',getComputedStyle(main.querySelector('.native-info')).display==='none'&&main.querySelector('#prev').isConnected&&main.querySelector('#next').isConnected);
+history.replaceState(null,'','/catalog');window.dispatchEvent(new PopStateEvent('popstate'));refresh();await tick();
+check('Unrelated routes restore original blocks and controls',!document.querySelector('#dtvp-series-button')&&!document.querySelector('#dtvp-franchise')&&getComputedStyle(main.querySelector('.native-info')).display!=='none'&&getComputedStyle(main.querySelector('#original-franchise')).display!=='none');
+check('Unrelated route removes player positioning',!main.querySelector('.native-player').style.getPropertyValue('--dtvp-series-bottom')&&!main.querySelector('.dtvp-series-panel'));
+history.replaceState(null,'','/release/layout-test');window.dispatchEvent(new PopStateEvent('popstate'));refresh();await tick();
+main.querySelector('#original-franchise a[href="/release/beta"]').setAttribute('href','/release/reference');main.querySelector('#original-franchise a[href="/release/reference"] p').textContent='Второй сезон';refresh();await tick();
+document.querySelectorAll('#dtvp-franchise a')[1].focus();await tick();check('Incomplete Flight metadata triggers safe HTML detail fallback',calls.some(c=>c.url==='/release/reference')&&preview.textContent.includes('07.07.2026')&&!preview.textContent.includes('$23'));
+main.querySelector('#original-franchise a[href="/release/reference"]').setAttribute('href','/release/gamma');main.querySelector('#original-franchise a[href="/release/gamma"] p').textContent='Второй сезон';refresh();fail=true;await tick();
+const failureRow=document.querySelectorAll('#dtvp-franchise a')[1];failureRow.focus();await tick();
+check('Fetch failure preserves original card preview and navigation',!preview.hidden&&preview.textContent.includes('Второй сезон')&&failureRow.pathname==='/release/gamma'&&!preview.textContent.includes('Дата'));
+check('Unavailable fields are omitted',!preview.textContent.includes('NaN')&&!preview.textContent.includes('undefined')&&!preview.querySelector('.dtvp-preview-tags'));
+failureRow.blur();fail=false;redirect=true;main.querySelector('#original-franchise a[href="/release/gamma"]').setAttribute('href','/release/redirected');main.querySelector('#original-franchise a[href="/release/redirected"] p').textContent='Второй сезон';refresh();await tick();
+document.querySelectorAll('#dtvp-franchise a')[1].focus();await tick();check('Redirect to a different release cannot supply metadata',!preview.textContent.includes('Описание второго сезона')&&!preview.textContent.includes('Дата'));
+redirect=false;delay=true;main.querySelector('#original-franchise a[href="/release/redirected"]').setAttribute('href','/release/pending');main.querySelector('#original-franchise a[href="/release/pending"] p').textContent='Второй сезон';refresh();await tick();document.querySelectorAll('#dtvp-franchise a')[1].focus();await tick();
+history.replaceState(null,'','/catalog');window.dispatchEvent(new PopStateEvent('popstate'));refresh();await tick();releasePending();await tick();check('Async metadata cannot reopen preview after navigation',preview.hidden&&!document.querySelector('#dtvp-franchise'));
+}
+if(!demo){if(savedCollapse===null)localStorage.removeItem('dubtv-plus-franchise-collapsed');else localStorage.setItem('dubtv-plus-franchise-collapsed',savedCollapse);document.querySelector('#summary').textContent=`${passed} passed, ${failed} failed`;document.title=failed?'FAIL: Release layout tests':'PASS: Release layout tests';}
+</script>

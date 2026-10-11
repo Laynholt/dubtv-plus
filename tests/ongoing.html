@@ -1,0 +1,54 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Ongoing tests</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0a0a0c;color:#f0f0f0;font:14px/20px system-ui}main{max-width:1040px;margin:32px auto;padding:0 24px}h1{font-size:30px}h2{font-size:18px}.schedule{display:grid;grid-template-columns:140px 1fr;gap:24px;padding:20px 0;border-top:1px solid #2a2a32}.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}a{display:flex;gap:12px;min-width:0;padding:6px;margin:-6px;color:inherit;text-decoration:none;border-radius:8px}a:hover{background:#ffffff0d}.poster{position:relative;width:62px;aspect-ratio:2/3;flex-shrink:0;border-radius:5px;background:linear-gradient(135deg,#558092,#3b425c 45%,#cd8571)}.poster img{position:absolute;width:100%;height:100%;opacity:0}.info{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px;padding-top:4px}.name{font-weight:600;line-height:1.3}.meta{font-size:11.5px;color:#8b8b9c}.new{position:absolute;top:4px;left:4px;background:#d6381c;border-radius:3px;padding:0 4px;font-size:10px}#results{margin:24px}#panel{display:none}@media(max-width:720px){main{padding:0 16px}.schedule{grid-template-columns:1fr;gap:12px}.cards{grid-template-columns:1fr}h2{margin:0}}
+</style><div id="panel"></div><main><h1>Онгоинги</h1><p class="meta">3 тайтла в озвучке · время по Москве</p><section class="schedule"><h2>Четверг</h2><div class="cards"><a href="/release/alpha"><span class="poster"><img alt=""><span class="new">Новая</span></span><span class="info"><span class="name">Ледяная стена 2</span><span class="meta">озвучено 2 · вышло 2</span><span class="meta">серия 3 · чт 17:56</span></span></a><a href="/release/beta"><span class="poster"><img alt=""></span><span class="info"><span class="name">Рассекая небосвод</span><span class="meta">озвучено 12 из 26 · вышло 12</span><span class="meta">дата серии не объявлена</span></span></a></div></section></main><ol id="results"></ol>
+<script>
+const options=new URLSearchParams(location.search),integrated=options.has('integrated'),demo=options.has('demo'),navigation=options.has('navigation');history.replaceState(null,'',navigation?'/catalog':'/ongoing');
+localStorage.setItem('dubtv-plus-options','{}');
+localStorage.setItem('dubtv-plus-hidden',JSON.stringify({beta:'Beta'}));localStorage.setItem('dubtv-plus-hide-completed','true');localStorage.setItem('dubtv-plus-blocked-genres',JSON.stringify(navigation?[]:['Фэнтези']));
+const catalog=[{id:'a',slug:'alpha',genres:['Фэнтези']},{id:'b',slug:'beta',genres:[]},{id:'c',slug:'gamma',genres:[]}];let writes=[],writeFail=false;
+const lists={WATCHING:[{slug:'alpha'}],PLANNED:[],COMPLETED:[{slug:'beta'}],ON_HOLD:[],DROPPED:[]};
+const stream=data=>'<script>self.__next_f.push('+JSON.stringify([1,'5:'+JSON.stringify(data)+'\n'])+')<\/script>';
+window.fetch=async(url,config)=>{
+ if(url==='/api/user/lists'){writes.push({method:config.method,body:JSON.parse(config.body)});return {ok:!writeFail,status:writeFail?403:200};}
+ return {ok:true,text:async()=>stream(url==='/catalog'?{releases:catalog}:{user:{id:'user'},lists})};
+};
+window.ready=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=(integrated?'/dubtv-plus.user.js':'/src/library.js')+'?test='+Date.now();script.onload=resolve;script.onerror=reject;document.head.append(script);});
+</script><script type="module">
+await window.ready;const tick=()=>new Promise(r=>setTimeout(r,100));let passed=0,failed=0;
+function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
+const refresh=integrated?()=>window.dispatchEvent(new PopStateEvent('popstate')):createLibraryTools(document.querySelector('#panel'));
+const observer=integrated?null:new MutationObserver(refresh);observer?.observe(document.querySelector('main'),{childList:true,subtree:true,attributes:true,attributeFilter:['disabled','aria-expanded']});refresh();await tick();
+const toolbar=document.querySelector('#dtvp-card-tools'),menu=toolbar.querySelector('#dtvp-status-menu');
+if(navigation){
+ const oldMain=document.querySelector('main');oldMain.querySelector('[href="/release/alpha"]').dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+ check('Desktop catalogue hover attaches controls to the current page',oldMain.contains(toolbar));
+ const nextMain=oldMain.cloneNode(true);nextMain.querySelector('#dtvp-card-tools')?.remove();nextMain.querySelector('#dtvp-genre-block')?.remove();nextMain.querySelectorAll('.dtvp-status').forEach(b=>b.remove());nextMain.querySelectorAll('.dtvp-hidden-card').forEach(b=>b.classList.remove('dtvp-hidden-card'));oldMain.replaceWith(nextMain);
+ observer?.disconnect();observer?.observe(nextMain,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled','aria-expanded']});history.pushState(null,'','/ongoing');refresh();await tick();
+}
+const alpha=document.querySelector('[href="/release/alpha"]'),beta=document.querySelector('[href="/release/beta"]'),button=alpha.nextElementSibling;
+check('Every scheduled title gets a visible enabled sibling button',document.querySelectorAll('.dtvp-ongoing-add').length===2&&[...document.querySelectorAll('.dtvp-ongoing-add')].every(b=>!b.disabled&&!b.closest('a')&&b.getBoundingClientRect().height===30));
+check('Hidden and completed preferences never remove scheduled titles',!document.querySelector('.dtvp-hidden-card'));
+check('No floating not-interested action appears on hover',toolbar.hidden);
+check('Native span title is used by the category button',button?.title.includes('Ледяная стена 2'));
+const buttonRect=button?.getBoundingClientRect(),seriesRect=alpha.querySelector('.info').lastElementChild.getBoundingClientRect();
+check('Permanent button sits below series information without overflow',buttonRect?.top>=seriesRect.bottom&&Math.abs(buttonRect.left-seriesRect.left)<1&&buttonRect.right<=alpha.getBoundingClientRect().right);
+check('Native links remain direct children of their original grid',alpha.parentElement.classList.contains('cards')&&beta.parentElement===alpha.parentElement);
+if(demo){document.querySelector('#results').hidden=true;document.title='DubTV+ — кнопки онгоингов';}
+else{
+ button?.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));await tick();
+ check('Ongoing category menu is attached to the visible document',menu.isConnected);
+ check('Keyboard opens categories with the current status selected',!menu.hidden&&document.activeElement.value==='WATCHING'&&button?.getAttribute('aria-expanded')==='true');
+ const rect=menu.getBoundingClientRect();check('Category menu stays inside the viewport',rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight);
+ check('Ongoing menu contains no not-interested button',toolbar.querySelector('#dtvp-card-action').hidden&&toolbar.querySelector('#dtvp-status-choice').hidden);
+ menu.querySelector('[value="PLANNED"]').click();await tick();check('Ongoing category saves the correct release id',writes.at(-1)?.body.releaseId==='a'&&writes.at(-1)?.body.listStatus==='PLANNED'&&button.textContent==='Добавить в…');
+ button.click();menu.querySelector('[value=""]').click();await tick();check('Ongoing category can be removed through native API',writes.at(-1)?.method==='DELETE'&&writes.at(-1)?.body.releaseId==='a');
+ writeFail=true;button.click();menu.querySelector('[value="COMPLETED"]').click();await tick();check('Failed save leaves the button usable and reports failure',!button.disabled&&document.querySelector('#dtvp-action-state').textContent.includes('Не удалось')&&!document.querySelector('.dtvp-hidden-card'));writeFail=false;
+ button.click();menu.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));check('Escape returns keyboard focus to the ongoing button',menu.hidden&&document.activeElement===button);
+ const fresh=beta.cloneNode(true);fresh.href='/release/gamma';document.querySelector('.cards').append(fresh);refresh();await tick();check('Dynamically rendered titles get one permanent button',fresh.nextElementSibling.classList.contains('dtvp-ongoing-add')&&document.querySelectorAll('.dtvp-ongoing-add').length===3);
+ refresh();refresh();await tick();check('Repeated refresh never duplicates ongoing controls',document.querySelectorAll('.dtvp-ongoing-card').length===3);
+ document.querySelector('.cards').removeChild(fresh);await tick();check('Native removal leaves no orphan category button',document.querySelectorAll('.dtvp-ongoing-add').length===2);
+ button.click();history.pushState(null,'','/profile');refresh();await tick();check('Route change closes menu and unwraps ongoing cards',menu.hidden&&!document.querySelector('.dtvp-ongoing-add')&&alpha.parentElement.classList.contains('cards'));
+ document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+}
+</script></html>

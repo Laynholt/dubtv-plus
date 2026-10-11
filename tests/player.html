@@ -62,7 +62,7 @@ function selectEpisode(step) {
 document.querySelector('#previous').onclick = () => selectEpisode(-1);
 document.querySelector('#next').onclick = () => selectEpisode(1);
 </script>
-<script src="/dubtv-plus.user.js?v=100"></script>
+<script src="/dubtv-plus.user.js?v=110-release"></script>
 <script type="module">
 const tick = () => new Promise(resolve => setTimeout(resolve, 30));
 let passed = 0, failed = 0;
@@ -80,6 +80,7 @@ check('Saved quality is applied through native menu', selectedQuality === '720p'
 check('Automatic quality restore closes its menu', !document.querySelector('#quality-menu'));
 const prev = () => document.querySelector('[aria-label="Предыдущая серия"]');
 const next = () => document.querySelector('[aria-label="Следующая серия"]');
+check('Episode icons use SVG rather than emoji', prev()?.querySelector('svg') && next()?.querySelector('svg') && !/[⏮⏭]/u.test(document.querySelector('#dubtv-plus-navigation').textContent));
 check('First episode has no previous action', prev()?.disabled === true);
 next()?.click();
 await tick();

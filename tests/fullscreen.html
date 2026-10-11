@@ -1,0 +1,56 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Native fullscreen tests</title>
+<main><div id="player"><video></video><button aria-label="Полный экран"><span>⛶</span></button></div></main>
+<button id="outside" aria-label="Полный экран">Other video</button><ol id="results"></ol>
+<script>
+history.replaceState(null,'','/release/fullscreen-test');
+let nativeCalls=0,siteCalls=0;
+const fullscreen=document.querySelector('#player button');
+fullscreen.onclick=()=>siteCalls++;
+document.querySelector('#outside').onclick=()=>siteCalls++;
+function device(userAgent,platform,touches){
+  for(const [key,value] of Object.entries({userAgent,platform,maxTouchPoints:touches}))Object.defineProperty(navigator,key,{value,configurable:true});
+}
+function nativeVideo(video){
+  Object.defineProperty(video,'webkitSupportsFullscreen',{value:true,configurable:true});
+  video.webkitEnterFullscreen=()=>nativeCalls++;
+}
+nativeVideo(document.querySelector('video'));
+</script><script src="/dubtv-plus.user.js?v=110-release"></script><script type="module">
+let passed=0,failed=0;
+function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
+function click(name,expectedNative,expectedSite,target=fullscreen){nativeCalls=siteCalls=0;target.click();check(name,nativeCalls===expectedNative&&siteCalls===expectedSite);}
+let video=document.querySelector('video');
+device('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)','iPhone',5);
+click('iPhone opens native video instead of site fullscreen',1,0);
+check('No autoplay or source replacement is introduced',video.paused&&!video.hasAttribute('src'));
+device('Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)','iPad',5);
+click('iPad opens native video',1,0);
+device('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)','MacIntel',5);
+click('iPad desktop user agent opens native video',1,0,fullscreen.querySelector('span'));
+device('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)','MacIntel',0);
+click('Desktop Safari keeps site fullscreen even with native API',0,1);
+device('Mozilla/5.0 (Windows NT 10.0; Win64; x64)','Win32',5);
+click('Touchscreen Windows keeps site fullscreen',0,1);
+device('Mozilla/5.0 (Linux; Android 14)','Linux armv8l',5);
+click('Android keeps site fullscreen',0,1);
+device('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)','iPhone',5);
+video.webkitEnterFullscreen=undefined;
+click('Unavailable native API falls back to site',0,1);
+nativeVideo(video);Object.defineProperty(video,'webkitSupportsFullscreen',{value:false,configurable:true});
+click('Unsupported media falls back to site',0,1);
+nativeVideo(video);video.webkitEnterFullscreen=()=>{throw new Error('NotAllowedError');};
+click('Rejected native fullscreen falls back to site',0,1);
+nativeVideo(video);click('Unrelated fullscreen buttons are untouched',0,1,document.querySelector('#outside'));
+Object.defineProperty(document,'fullscreenElement',{value:document.querySelector('#player'),configurable:true});
+click('Existing site fullscreen is not replaced',0,1);delete document.fullscreenElement;
+Object.defineProperty(video,'webkitDisplayingFullscreen',{value:true,configurable:true});
+click('Already open native fullscreen is not entered again',0,1);delete video.webkitDisplayingFullscreen;
+fullscreen.setAttribute('aria-label','Выйти из полноэкранного режима');
+click('Site fullscreen exit button is untouched',0,1);fullscreen.setAttribute('aria-label','Полный экран');
+const replacement=document.createElement('video');nativeVideo(replacement);video.replaceWith(replacement);video=replacement;
+await new Promise(resolve=>setTimeout(resolve,80));
+click('Replacement video uses native fullscreen',1,0);
+history.pushState(null,'','/watch/test');
+click('Shared watching is untouched',0,1);
+document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+</script></html>

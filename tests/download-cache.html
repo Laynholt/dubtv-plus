@@ -1,0 +1,61 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Download cache tests</title><ol id="results"></ol>
+<script src="/src/download.js"></script><script type="module">
+let passed=0,failed=0;
+function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
+const directory=await(await navigator.storage.getDirectory()).getDirectoryHandle('dubtv-plus-downloads',{create:true});
+const files=async()=>{const names=[];for await(const name of directory.keys())names.push(name);return names;};
+const before=await files();
+const cache=await createDownloadCache();check('Private storage is available',!!cache);
+if(cache){
+ const chunk=new Uint8Array(1024*1024);chunk[0]=42;
+ for(let i=0;i<257;i++)await cache.write(chunk);
+ const result=await cache.finish();
+ check('A file above 256 MiB completes without keeping all bytes in memory',result.size===257*1024*1024&&result.type==='video/mp4');
+ check('File-backed output retains written bytes',new Uint8Array(await result.slice(256*1024*1024,256*1024*1024+1).arrayBuffer())[0]===42);
+ await cache.remove();check('Completed temporary file is deleted after use',JSON.stringify(await files())===JSON.stringify(before));
+ const cancelled=await createDownloadCache();await cancelled.write(new Uint8Array([1,2,3]));await cancelled.remove();check('Cancellation deletes incomplete temporary output',JSON.stringify(await files())===JSON.stringify(before));
+ const native=FileSystemFileHandle.prototype.createWritable;
+ try{
+  FileSystemFileHandle.prototype.createWritable=undefined;
+  const legacy=await createDownloadCache();check('Safari sync access path starts in a dedicated worker',!!legacy);
+  if(legacy){await legacy.write(new Uint8Array([1,2]));await legacy.write(new Uint8Array([3,4]));const output=await legacy.finish();check('Worker appends parts in order without gaps',Array.from(new Uint8Array(await output.arrayBuffer())).join(',')==='1,2,3,4');await legacy.remove();}
+  const racing=await createDownloadCache();
+  if(racing){const writing=racing.write(new Uint8Array(1024*1024));const removing=racing.remove();let timer;try{await Promise.race([Promise.all([writing,removing]),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Pending write did not settle')),3000);})]);check('Cancellation during worker write settles both requests',true);}catch{check('Cancellation during worker write settles both requests',false);}finally{clearTimeout(timer);}}
+ }finally{FileSystemFileHandle.prototype.createWritable=native;}
+ check('Worker output is deleted and releases its file lock',JSON.stringify(await files())===JSON.stringify(before));
+}
+async function databaseKeys(){
+ return new Promise((resolve,reject)=>{
+  const request=indexedDB.open('dubtv-plus-downloads',1);
+  request.onupgradeneeded=()=>request.result.createObjectStore('parts');request.onerror=()=>reject(request.error);
+  request.onsuccess=()=>{const db=request.result,tx=db.transaction('parts','readonly'),keys=tx.objectStore('parts').getAllKeys();tx.oncomplete=()=>{db.close();resolve(keys.result);};tx.onabort=()=>{db.close();reject(tx.error);};};
+ });
+}
+const databaseBefore=await databaseKeys(),nativeDirectory=navigator.storage.getDirectory;
+try{
+ navigator.storage.getDirectory=undefined;
+ const fallback=await createDownloadCache();check('Missing file API falls back to database storage',fallback?.kind==='indexeddb');
+ if(fallback){
+  const chunk=new Uint8Array(1024*1024);chunk[0]=42;for(let i=0;i<257;i++)await fallback.write(chunk);
+  const output=await fallback.finish();check('Database fallback completes MP4 above 256 MiB',output.size===257*1024*1024&&output.type==='video/mp4');
+  check('Database output preserves part order and final bytes',new Uint8Array(await output.slice(256*1024*1024,256*1024*1024+1).arrayBuffer())[0]===42);
+  await fallback.remove();check('Database cleanup removes all parts of the completed download',JSON.stringify(await databaseKeys())===JSON.stringify(databaseBefore));
+  check('Completed blob remains readable after temporary database parts are removed',new Uint8Array(await output.slice(256*1024*1024,256*1024*1024+1).arrayBuffer())[0]===42);
+ }
+ const first=await createDownloadCache(),second=await createDownloadCache();await first.write(new Uint8Array([1]));await second.write(new Uint8Array([2,3]));await first.remove();
+ check('Database cancellation preserves another concurrent download',Array.from(new Uint8Array(await(await second.finish()).arrayBuffer())).join(',')==='2,3');await second.remove();
+ const racing=await createDownloadCache();await Promise.all([racing.write(new Uint8Array(1024*1024)),racing.remove()]);check('Database cancellation waits for an in-flight write and deletes its parts',JSON.stringify(await databaseKeys())===JSON.stringify(databaseBefore));
+ const failed=await createDownloadCache(),nativePut=IDBObjectStore.prototype.put;let quotaError;
+ try{IDBObjectStore.prototype.put=()=>{throw new DOMException('Storage full','QuotaExceededError');};await failed.write(new Uint8Array([4]));}catch(error){quotaError=error;}finally{IDBObjectStore.prototype.put=nativePut;await failed.remove();}
+ check('Database quota failure is reported and remains cleanable',quotaError?.name==='QuotaExceededError'&&JSON.stringify(await databaseKeys())===JSON.stringify(databaseBefore));
+ const nativeOpen=indexedDB.open;let diagnostic;
+ try{indexedDB.open=()=>{throw new DOMException('Storage denied','SecurityError');};const unavailable=await createDownloadCache(reason=>diagnostic=reason);check('Both storage failures retain the exact reason for the user',!unavailable&&diagnostic.includes('API временных файлов')&&diagnostic.includes('SecurityError: Storage denied'));}finally{indexedDB.open=nativeOpen;}
+}finally{navigator.storage.getDirectory=nativeDirectory;}
+const nativeWritable=FileSystemFileHandle.prototype.createWritable,nativeWorker=window.Worker;
+try{
+ FileSystemFileHandle.prototype.createWritable=undefined;window.Worker=class{constructor(){throw new DOMException('Worker denied','SecurityError');}};
+ const blocked=await createDownloadCache();check('Blocked worker falls back to database storage',blocked?.kind==='indexeddb');if(blocked){await blocked.write(new Uint8Array([5,6]));check('Blocked-worker fallback produces the expected bytes',Array.from(new Uint8Array(await(await blocked.finish()).arrayBuffer())).join(',')==='5,6');await blocked.remove();}
+ check('Worker failure removes its empty file before using the database',JSON.stringify(await files())===JSON.stringify(before)&&JSON.stringify(await databaseKeys())===JSON.stringify(databaseBefore));
+}finally{FileSystemFileHandle.prototype.createWritable=nativeWritable;window.Worker=nativeWorker;}
+document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+</script></html>

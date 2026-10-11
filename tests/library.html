@@ -2,16 +2,76 @@
 <style>body{background:#18181c;color:white;font:16px system-ui}.grid{display:grid;grid-template-columns:repeat(3,200px);gap:12px}a{display:block;color:inherit}img{width:100px;height:80px}button{padding:8px}</style>
 <div id="panel"></div><main><div class="grid"><a href="/release/alpha"><img alt="Alpha"><h3>Alpha</h3></a><a href="/release/beta"><img alt="Beta"><h3>Beta</h3></a><a href="/release/gamma"><img alt="Gamma"><h3>Gamma</h3></a></div></main><ol id="results"></ol>
 <script>
-history.replaceState(null,'','/catalog');localStorage.removeItem('dubtv-plus-hidden');localStorage.removeItem('dubtv-plus-hide-completed');
-let calls=0,fail=false;
+const demo=new URLSearchParams(location.search).has('demo'),catalogFail=new URLSearchParams(location.search).has('catalogFail'),relatedOnly=new URLSearchParams(location.search).has('relatedOnly');
+history.replaceState(null,'',relatedOnly?'/release/test':'/catalog');localStorage.removeItem('dubtv-plus-hidden');localStorage.removeItem('dubtv-plus-hide-completed');localStorage.removeItem('dubtv-plus-blocked-genres');
+if(relatedOnly){const section=document.createElement('section');section.innerHTML='<h2>Похожее</h2>';section.append(document.querySelector('.grid'));document.querySelector('main').append(section);}
+let catalogFailures=catalogFail?1:0;
+let calls=0,catalogCalls=0,fail=false;
 const lists={WATCHING:[{id:'a',slug:'alpha',titleRu:'Alpha'}],PLANNED:[],COMPLETED:[{id:'b',slug:'beta',titleRu:'Beta'}],ON_HOLD:[],DROPPED:[]};
-window.fetch=async(url,options)=>{calls++;if(url!=='/profile'||options?.method&&options.method!=='GET')throw Error('Unexpected request');if(fail)throw Error('Offline');return {ok:true,text:async()=>'<script>self.__next_f.push('+JSON.stringify([1,'5:'+JSON.stringify(['$','$L1',null,{data:{user:{id:'user-a'},lists}}])+'\n'])+')<\/script>'};};
-</script><script src="/src/library.js?v=100"></script><script type="module">
+let writes=[],writeFail=false,releaseWrite;
+const catalog=[{id:'a',slug:'alpha',genres:['Драма','Фэнтези']},{id:'b',slug:'beta',genres:['Комедия']},{id:'c',slug:'gamma',genres:['Фэнтези']}];
+catalog.push({id:'d',slug:'unrendered',genres:['Экшен','Сёнен','Романтика','Школа','Приключения','Сверхъестественное','Фантастика','Безумие','Военное','Гарем','Боевые искусства']});
+const stream=data=>'<script>self.__next_f.push('+JSON.stringify([1,'5:'+JSON.stringify(data)+'\n'])+')<\/script>';
+window.fetch=async(url,options)=>{
+ if(url==='/catalog'){catalogCalls++;if(catalogFailures-->0)throw Error('Offline');return {ok:true,text:async()=>stream({releases:catalog})};}
+ if(url==='/api/user/lists'){
+  writes.push({method:options.method,body:JSON.parse(options.body),credentials:options.credentials});
+  if(releaseWrite)await new Promise(resolve=>releaseWrite=resolve);
+  if(writeFail)return {ok:false,status:403};
+  const body=JSON.parse(options.body),entry=catalog.find(c=>c.id===body.releaseId);
+  for(const key of Object.keys(lists))lists[key]=lists[key].filter(c=>c.id!==entry.id);
+  if(options.method==='POST')lists[body.listStatus].push(entry);
+  return {ok:true};
+ }
+ calls++;if(url!=='/profile'||options?.method&&options.method!=='GET')throw Error('Unexpected request');if(fail)throw Error('Offline');return {ok:true,text:async()=>stream({data:{user:{id:'user-a'},lists}})};
+};
+if(demo){
+ const style=document.createElement('style');style.textContent='*{box-sizing:border-box}body{margin:0;background:#0a0a0c;color:#f0f0f0;font:13px/20px Inter,system-ui,sans-serif}#panel,#results{display:none}main{display:flex;gap:32px;margin:32px auto;padding:0 24px;max-width:1040px}aside{width:240px;flex-shrink:0}.grid{grid-template-columns:repeat(3,190px);gap:20px;height:fit-content}a{text-decoration:none}a h3{font-size:14px;margin:10px 0 0}.demo-poster{height:280px;border-radius:8px;border:1px solid #2a2a32;background:linear-gradient(155deg,#1f4555,#14202a 45%,#5e323e)}a:nth-of-type(2) .demo-poster{background:linear-gradient(155deg,#5e273d,#241525 45%,#884533)}a:nth-of-type(3) .demo-poster{background:linear-gradient(155deg,#354b35,#162523 45%,#49446b)}.native-genres h3{font-size:11px;color:#8b8b9c;letter-spacing:.12em;text-transform:uppercase;margin:0 0 8px}.native-genres input{width:100%;height:32px;padding:0 10px;border:1px solid #2a2a32;border-radius:6px;background:transparent;color:#f0f0f0;margin-bottom:8px;font:inherit}.native-genres button{display:flex;justify-content:space-between;align-items:center;width:100%;height:28px;margin-bottom:2px;padding:0 8px;border:0;border-radius:5px;background:transparent;color:#9a9aaa;font:inherit}.native-genres button span{color:#8b8b9c;font-size:11.5px}@media(max-width:720px){main{flex-wrap:wrap}.grid{grid-template-columns:repeat(3,140px)}}';document.head.append(style);
+ const aside=document.createElement('aside');aside.innerHTML='<div class="native-genres"><h3>Жанры</h3><input placeholder="Найти жанр" aria-label="Поиск жанра"></div>';document.querySelector('main').prepend(aside);
+ const native=aside.firstElementChild;
+ for(const [genre,count] of [['Экшен',72],['Фэнтези',54],['Сёнен',45],['Драма',40],['Романтика',39],['Школа',34],['Комедия',33],['Приключения',33],['Сверхъестественное',30],['Фантастика',18]]){const b=document.createElement('button');b.append(genre);const n=document.createElement('span');n.textContent=count;b.append(n);native.append(b);}
+ for(const img of document.querySelectorAll('.grid img')){const poster=document.createElement('div');poster.className='demo-poster';img.replaceWith(poster);}
+}
+</script><script type="module">
+await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/src/library.js?test='+Date.now();script.onload=resolve;script.onerror=reject;document.head.append(script);});
 let passed=0,failed=0;function check(n,v){const li=document.createElement('li');li.textContent=(v?'PASS: ':'FAIL: ')+n;document.querySelector('#results').append(li);v?passed++:failed++;}
 const tick=()=>new Promise(r=>setTimeout(r,80));
-const refresh=typeof createLibraryTools==='function'?createLibraryTools(document.querySelector('#panel')):()=>{};
+const actionOptions={};
+const refresh=typeof createLibraryTools==='function'?createLibraryTools(document.querySelector('#panel'),actionOptions):()=>{};
 refresh();await tick();
+if(relatedOnly){
+ check('Direct release visit loads list and release identifiers',calls===1&&catalogCalls===1);
+ const card=document.querySelector('[href="/release/alpha"]');card.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+ const trigger=document.querySelector('#dtvp-status-choice'),menu=document.querySelector('#dtvp-status-menu');
+ if(catalogFail){
+  check('Failed release metadata leaves status changes disabled',trigger.disabled);
+  document.querySelector('#dtvp-refresh-lists').click();await tick();
+  check('Refreshing statuses recovers release metadata',!trigger.disabled&&catalogCalls===2);
+ }
+ check('Related card exposes enabled status selector',!trigger.hidden&&!trigger.disabled&&trigger.value==='WATCHING');
+ trigger.click();menu.querySelector('[value="PLANNED"]').click();await tick();
+ check('Related card saves status through native API',writes.at(-1)?.body.releaseId==='a'&&writes.at(-1)?.body.listStatus==='PLANNED'&&trigger.value==='PLANNED');
+ const completed=document.querySelector('#dtvp-hide-completed');completed.checked=true;completed.dispatchEvent(new Event('change'));refresh();
+ check('Catalogue completed filter leaves related titles visible',!document.querySelector('[href="/release/beta"]').classList.contains('dtvp-hidden-card'));
+ trigger.click();menu.querySelector('[value=""]').click();await tick();
+ check('Related card supports removing status',writes.at(-1)?.method==='DELETE'&&trigger.value==='');
+ history.pushState(null,'','/profile');refresh();
+ check('Leaving release closes related controls',document.querySelector('#dtvp-card-tools').hidden&&menu.hidden);
+ document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+}else if(!demo){
+if(catalogFail){
+ check('Catalog failure keeps cards visible',!document.querySelector('.dtvp-hidden-card')&&document.querySelector('#dtvp-genre-block').textContent.includes('Не удалось'));
+ const pendingSearch=document.querySelector('#dtvp-genre-block input[type=search]');pendingSearch.value='дра';pendingSearch.dispatchEvent(new Event('input'));
+ Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Повторить загрузку жанров')?.click();await tick();
+ check('Catalog retry recovers metadata',document.querySelectorAll('[data-block-genre]').length===14);
+ check('Genre search is applied after async loading',document.querySelector('[data-block-genre="Фэнтези"]').hidden&&!document.querySelector('[data-block-genre="Драма"]').hidden);
+ pendingSearch.value='';pendingSearch.dispatchEvent(new Event('input'));
+}
 check('Native statuses appear on matching cards',document.querySelector('[href="/release/alpha"]')?.textContent.includes('Смотрю')&&document.querySelector('[href="/release/beta"]')?.textContent.includes('Просмотрено'));
+const expandGenres=document.querySelector('#dtvp-genre-options').nextElementSibling;
+check('Initial genre view keeps ten rows',document.querySelectorAll('#dtvp-genre-options button:not([hidden])').length===10);
+expandGenres.click();check('All genres can be expanded',document.querySelectorAll('#dtvp-genre-options button:not([hidden])').length===14&&expandGenres.getAttribute('aria-expanded')==='true');
+expandGenres.click();check('Expanded genres can be collapsed',document.querySelectorAll('#dtvp-genre-options button:not([hidden])').length===10);
 const hide=document.querySelector('#dtvp-hide-completed');if(hide){hide.checked=true;hide.dispatchEvent(new Event('change'));}refresh();await tick();
 check('Completed card hidden, unknown card retained',document.querySelector('[href="/release/beta"]')?.classList.contains('dtvp-hidden-card')&&!document.querySelector('[href="/release/gamma"]')?.classList.contains('dtvp-hidden-card'));
 const choice=document.querySelector('#dtvp-hide-choice');if(choice)choice.value='gamma';document.querySelector('#dtvp-hide-title')?.click();refresh();await tick();
@@ -21,12 +81,116 @@ document.querySelector('[data-restore-slug="gamma"]')?.click();refresh();await t
 check('Restore makes card visible',!document.querySelector('[href="/release/gamma"]')?.classList.contains('dtvp-hidden-card'));
 refresh();refresh();await tick();check('DOM refresh does not refetch lists',calls===1);
 check('No duplicate card actions',document.querySelectorAll('#dtvp-card-action').length===1);
+const alpha=document.querySelector('[href="/release/alpha"]');
+alpha.scrollIntoView({block:'start'});
+alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));await tick();
+const statusChoice=document.querySelector('#dtvp-status-choice');
+const statusMenu=document.querySelector('#dtvp-status-menu');
+function chooseStatus(value){statusChoice.click();statusMenu.querySelector(`button[value="${value}"]`)?.click();}
+check('Card action shows current status',statusChoice?.value==='WATCHING'&&!statusChoice.disabled);
+alpha.focus();
+statusChoice.click();
+check('Menu marks current status and focuses it',!statusMenu.hidden&&statusMenu.querySelector('[aria-checked="true"]')===document.activeElement&&document.activeElement.value==='WATCHING');
+statusMenu.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+check('Menu arrows move focus between statuses',document.activeElement.value==='PLANNED');
+statusMenu.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+check('Escape closes menu and restores trigger focus',statusMenu.hidden&&document.activeElement===statusChoice&&!document.querySelector('#dtvp-card-tools').hidden);
+statusChoice.click();
+document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));
+check('Outside click closes menu and card controls',statusMenu.hidden&&document.querySelector('#dtvp-card-tools').hidden);
+alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+const toolbar=document.querySelector('#dtvp-card-tools');
+for(const width of [140,200,260]){
+ alpha.style.width=width+'px';alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+ const cardRect=alpha.getBoundingClientRect(),toolsRect=toolbar.getBoundingClientRect();
+ check('Actions centered on '+width+'px card',Math.abs(cardRect.left+cardRect.width/2-toolsRect.left-toolsRect.width/2)<1&&toolsRect.width<=cardRect.width-16);
+ check('Actions retain top offset on '+width+'px card',Math.abs(toolsRect.top-cardRect.top-6)<1);
+}
+alpha.style.width='';
+alpha.focus();
+check('Card controls follow focused card in tab order',alpha.nextElementSibling===document.querySelector('#dtvp-card-tools'));
+actionOptions.showHideActions=false;refresh();alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+check('Not-interested toggle leaves list control available',document.querySelector('#dtvp-card-action').hidden&&!statusChoice.hidden&&!toolbar.hidden);
+statusChoice.click();actionOptions.showListActions=false;refresh();alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+check('Disabling both controls closes open menu without an empty toolbar',statusMenu.hidden&&toolbar.hidden);
+const disabledWrites=writes.length;statusMenu.querySelector('[value="PLANNED"]').click();await tick();
+check('Disabled list action cannot save through a stale menu',writes.length===disabledWrites);
+actionOptions.showHideActions=true;refresh();alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+check('List toggle leaves not-interested control available',!document.querySelector('#dtvp-card-action').hidden&&statusChoice.hidden&&!toolbar.hidden);
+actionOptions.showListActions=true;refresh();alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+chooseStatus('PLANNED');await tick();
+check('Status is saved through native API',writes.length===1&&writes[0].method==='POST'&&writes[0].body.releaseId==='a'&&writes[0].body.listStatus==='PLANNED'&&writes[0].credentials==='same-origin');
+check('Successful save updates badge',alpha.querySelector('.dtvp-status')?.textContent==='В планах');
+writeFail=true;chooseStatus('COMPLETED');await tick();
+check('Failed save keeps old status and reports error',alpha.querySelector('.dtvp-status')?.textContent==='В планах'&&document.querySelector('#dtvp-action-state')?.textContent.includes('Не удалось'));
+writeFail=false;chooseStatus('');await tick();
+check('Removing status uses DELETE and clears badge',writes.at(-1)?.method==='DELETE'&&!alpha.querySelector('.dtvp-status'));
+check('Empty status uses short caption',statusChoice.textContent==='Добавить в…');
+statusChoice.click();check('Menu omits remove action for a title outside lists',statusMenu.querySelector('button[value=""]').hidden);statusMenu.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+const genre=Array.from(document.querySelectorAll('[data-block-genre]')).find(e=>e.dataset.blockGenre==='Фэнтези');
+let refreshCycles=0;
+const productionObserver=new MutationObserver(()=>{if(++refreshCycles>20){productionObserver.disconnect();return;}refresh();});
+productionObserver.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled','aria-label','aria-expanded']});
+genre?.click();await tick();
+productionObserver.disconnect();check('Hiding hovered card settles with production observer',refreshCycles>0&&refreshCycles<=20);
+check('Genre blacklist excludes any matching genre',alpha.classList.contains('dtvp-hidden-card')&&document.querySelector('[href="/release/gamma"]').classList.contains('dtvp-hidden-card'));
+check('Genre blacklist is persisted',localStorage.getItem('dubtv-plus-blocked-genres')?.includes('Фэнтези'));
+const genreDetails=document.querySelector('#dtvp-genre-block');
+const search=genreDetails.querySelector('input[type=search]');search.value='дра';search.dispatchEvent(new Event('input'));
+check('Genre search hides nonmatching rows',getComputedStyle(genre).display==='none'&&getComputedStyle(document.querySelector('[data-block-genre="Драма"]')).display!=='none');
+check('Genre rows report selection accessibly',genre.getAttribute('aria-pressed')==='true');
+check('Genre counts match catalog metadata',genre.lastElementChild.textContent==='2');
+search.value='';search.dispatchEvent(new Event('input'));
+const later=alpha.cloneNode(true);later.classList.remove('dtvp-hidden-card');document.querySelector('.grid').append(later);refresh();
+check('Genre filter applies to newly rendered cards',later.classList.contains('dtvp-hidden-card'));later.remove();
+const unknown=document.createElement('a');unknown.href='/release/unknown';unknown.innerHTML='<h3>Unknown</h3>';document.querySelector('.grid').append(unknown);refresh();
+check('Missing genre metadata never hides unknown title',!unknown.classList.contains('dtvp-hidden-card'));
+genre?.click();await tick();
+check('Removing blocked genre restores matching cards',!alpha.classList.contains('dtvp-hidden-card'));
+const nativeFilters=document.createElement('aside');nativeFilters.innerHTML='<div><h3>Жанры</h3></div>';document.querySelector('main').prepend(nativeFilters);refresh();
+check('Blacklist is placed beside native genres',genreDetails.parentElement===nativeFilters);
+nativeFilters.hidden=true;refresh();check('Hidden sidebar keeps blacklist out of the mobile catalog',genreDetails.parentElement===nativeFilters&&getComputedStyle(nativeFilters).display==='none');
+alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));releaseWrite=true;
+chooseStatus('PLANNED');const pendingCount=writes.length;
+check('Pending write disables status changes',statusChoice.disabled&&document.querySelector('#dtvp-refresh-lists').disabled);
+statusMenu.querySelector('button[value="DROPPED"]').click();
+check('Duplicate writes are blocked',writes.length===pendingCount);
 history.pushState(null,'','/profile');refresh();await tick();
+releaseWrite();releaseWrite=undefined;await tick();
+check('Late save does not decorate another route',!document.querySelector('.dtvp-status'));
 check('Profile cards are not hidden or decorated',!document.querySelector('.dtvp-hidden-card')&&!document.querySelector('.dtvp-status'));
 history.pushState(null,'','/catalog');fail=true;document.querySelector('#dtvp-refresh-lists')?.click();await tick();refresh();
 check('List failure is visible and retryable',document.querySelector('#dtvp-list-state')?.textContent.includes('Не удалось')&&!document.querySelector('#dtvp-refresh-lists')?.disabled);
 check('List failure never hides completed from stale data',!document.querySelector('[href="/release/beta"]')?.classList.contains('dtvp-hidden-card'));
-fail=false;document.querySelector('#dtvp-refresh-lists')?.click();await tick();check('Retry recovers statuses',document.querySelector('[href="/release/alpha"]')?.textContent.includes('Смотрю'));
+fail=false;document.querySelector('#dtvp-refresh-lists')?.click();await tick();check('Retry recovers statuses',document.querySelector('[href="/release/beta"]')?.textContent.includes('Просмотрено'));
+choice.value='gamma';document.querySelector('#dtvp-hide-title').click();await tick();
 history.pushState(null,'','/ongoing');refresh();await tick();check('Completed filter is scoped to catalogue',!document.querySelector('[href="/release/beta"]')?.classList.contains('dtvp-hidden-card'));
+alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));alpha.focus();await tick();
+check('Ongoing cards do not offer the not-interested action',document.querySelector('#dtvp-card-tools').hidden);
+check('Ongoing schedule retains locally hidden titles',!document.querySelector('[href="/release/gamma"]').classList.contains('dtvp-hidden-card'));
+check('Every ongoing title has a permanent list button',document.querySelectorAll('.dtvp-ongoing-add').length===4&&[...document.querySelectorAll('.dtvp-ongoing-add')].every(b=>!b.hidden&&!b.closest('a'))&&[...document.querySelectorAll('.dtvp-ongoing-add:not(:disabled)')].length===3);
+const ongoingGamma=document.querySelector('[href="/release/gamma"]').nextElementSibling;
+ongoingGamma?.click();
+check('Ongoing button opens the existing category menu',!statusMenu.hidden&&ongoingGamma?.getAttribute('aria-expanded')==='true'&&document.querySelector('#dtvp-card-action').hidden);
+if(ongoingGamma)statusMenu.querySelector('[value="ON_HOLD"]').click();await tick();
+check('Ongoing category save targets its own title',writes.at(-1)?.body.releaseId==='c'&&writes.at(-1)?.body.listStatus==='ON_HOLD'&&ongoingGamma?.textContent==='Добавить в…');
+ongoingGamma?.click();statusMenu.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+check('Ongoing menu restores focus to its permanent button',statusMenu.hidden&&document.activeElement===ongoingGamma);
+document.querySelector('[data-restore-slug="gamma"]').click();await tick();
+history.pushState(null,'','/release/test');
+const related=document.createElement('section');related.innerHTML='<h2>Похожее</h2><div class="strip" style="display:flex;gap:12px;overflow:auto"><div class="snap-start" style="flex:0 0 140px"><a href="/release/gamma"><h3>Gamma</h3></a></div><div class="snap-start" style="flex:0 0 140px"><a href="/release/beta"><h3>Beta</h3></a></div></div>';
+document.querySelector('main').append(related);refresh();
+check('Leaving ongoing removes its permanent buttons',!document.querySelector('.dtvp-ongoing-add'));
+await tick();const relatedBeta=related.querySelector('[href="/release/beta"]');relatedBeta.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));
+check('Related carousel exposes current list status',!statusChoice.hidden&&!statusChoice.disabled&&statusChoice.value==='COMPLETED');
+chooseStatus('WATCHING');await tick();
+check('Related carousel saves statuses without affecting title page',writes.at(-1)?.body.releaseId==='b'&&statusChoice.value==='WATCHING'&&!alpha.querySelector('.dtvp-status'));
+chooseStatus('COMPLETED');await tick();
+if(choice)choice.value='gamma';document.querySelector('#dtvp-hide-title')?.click();await tick();
+check('Related carousel hides whole slide without a blank slot',getComputedStyle(related.querySelector('.snap-start')).display==='none');
+check('Other carousel cards remain visible',getComputedStyle(related.querySelectorAll('.snap-start')[1]).display!=='none');
+document.querySelector('[data-restore-slug="gamma"]')?.click();refresh();
+check('Restoring hidden title restores slide',getComputedStyle(related.querySelector('.snap-start')).display!=='none');
 document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+} else document.title='DubTV+ — каталог: локальная проверка';
 </script></html>

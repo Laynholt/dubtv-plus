@@ -1,0 +1,133 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Download tests</title>
+<style>body{background:#0a0a0c;color:#f0f0f0;font:14px system-ui;padding:24px}</style>
+<main><h1>Тестовый тайтл</h1><span>Серия 2</span><div><video></video><button aria-label="Качество: 720p">720p</button></div></main><section id="panel"></section><ol id="results"></ol>
+<script>
+history.replaceState(null,'','/release/download-test');
+const release={slug:'download-test',titleRu:'Тестовый тайтл',episodes:[1,2].map(n=>({episodeNumber:n,videoUrlM3u8:`https://cdn.example/${n}/master.m3u8`}))};
+const description='Длинный текст\nна русском языке';
+const payload=JSON.stringify([1,'1:T'+new TextEncoder().encode(description).length.toString(16)+','+description+'2:'+JSON.stringify({release})+'\n']);
+const metadata=document.createElement('script');metadata.type='application/json';metadata.textContent=`self.__next_f.push(${payload})`;document.body.append(metadata);
+let failSegment=false,slowSegment=false,pauseSecond=false,requests=[],writes=[],closed=0,aborted=0;
+const files=new Set();let removed=0;
+const packet=new Uint8Array(188);packet[0]=0x47;
+const master='#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1920x1080\n1080p/index.m3u8\n#EXT-X-STREAM-INF:RESOLUTION=1280x720\n720p/index.m3u8\n#EXT-X-STREAM-INF:RESOLUTION=854x480\n480p/index.m3u8';
+const playlist='#EXTM3U\n#EXTINF:1,\na.ts\n#EXTINF:1,\nb.ts\n#EXT-X-ENDLIST';
+const originalFetch=window.fetch;
+window.fetch=async (url,options={})=>{
+ requests.push(String(url));
+ if(String(url).startsWith('/release/'))return new Response(`<script>self.__next_f.push(${payload})<\/script>`);
+ if(String(url).endsWith('master.m3u8'))return new Response(master);
+ if(String(url).endsWith('index.m3u8'))return new Response(playlist);
+ if(slowSegment || (pauseSecond && String(url).endsWith('b.ts')))return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true}));
+ return failSegment?new Response('error',{status:503}):originalFetch('/tests/fixtures/sample-'+(String(url).endsWith('a.ts')?'00':'01')+'.ts');
+};
+function writable(){return {write:async value=>writes.push(value),close:async()=>closed++,abort:async()=>aborted++};}
+window.showSaveFilePicker=async()=>({createWritable:async()=>writable()});
+window.showDirectoryPicker=async()=>({removeEntry:async name=>{files.delete(name);removed++;},getFileHandle:async(name,options)=>{if(!options?.create&&!files.has(name))throw new DOMException('missing','NotFoundError');if(options?.create)files.add(name);return {getFile:async()=>({size:0}),createWritable:async()=>writable()};}});
+</script><script src="/src/library.js"></script><script src="/vendor/mux-mp4.min.js"></script><script>const muxmp4=muxjs;</script><script src="/src/download.js"></script>
+<script type="module">
+let passed=0,failed=0;
+function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
+function throws(text){try{parseDownloadPlaylist(text,'https://cdn.example/1/master.m3u8');return false;}catch{return true;}}
+const tick=()=>new Promise(r=>setTimeout(r,40));
+async function settled(){for(let i=0;i<150;i++){const d=document.querySelector('#dubtv-plus-download');if(!d.querySelector('[type=submit]').disabled||!d.querySelector('[data-save]').hidden)return;await new Promise(r=>setTimeout(r,20));}}
+check('Release metadata includes both episodes',readDownloadRelease(document,location.pathname)?.episodes.length===2);
+check('Stale SPA release metadata is ignored',!readDownloadRelease(document,'/release/other'));
+check('Master resolves relative variants',parseDownloadPlaylist(master,'https://cdn.example/1/master.m3u8').variants[0].url==='https://cdn.example/1/1080p/index.m3u8');
+check('Media preserves segment order',parseDownloadPlaylist(playlist,'https://cdn.example/1/480p/index.m3u8').segments.join('|')==='https://cdn.example/1/480p/a.ts|https://cdn.example/1/480p/b.ts');
+check('Live playlist is rejected',throws(playlist.replace('#EXT-X-ENDLIST','')));
+check('Encryption is rejected',throws(playlist+'\n#EXT-X-KEY:METHOD=AES-128,URI="key"'));
+check('Separate audio is rejected',throws(master+'\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",URI="audio.m3u8"'));
+check('Fragmented MP4 is rejected',throws(playlist+'\n#EXT-X-MAP:URI="init.mp4"'));
+check('Byte ranges are rejected',throws(playlist+'\n#EXT-X-BYTERANGE:188@0'));
+check('Discontinuity is rejected',throws(playlist+'\n#EXT-X-DISCONTINUITY'));
+check('Unsafe URL is rejected',throws(playlist.replace('a.ts','javascript:alert(1)')));
+check('HTML error body is rejected',throws('<html>Error</html>'));
+let limitHit=false;try{await downloadRead('https://cdn.example/a.ts',new AbortController().signal,false,187);}catch{limitHit=true;}
+check('Memory limit rejects oversized segments',limitHit);
+const refresh=createDownloadTools(document.querySelector('#panel'));refresh();
+document.querySelector('#dubtv-plus-download-open').click();await tick();
+const dialog=document.querySelector('#dubtv-plus-download');
+check('Download dialog opens',dialog.open);
+check('Maximum quality is selected by default',dialog.querySelector('[name=quality]').value==='max');
+check('Current episode is selected',dialog.querySelector('[name=episode]').value==='2');
+dialog.querySelector('form').requestSubmit();await settled();
+check('Single episode is streamed and closed',closed===1&&writes.length===3&&requests.some(u=>u.includes('/2/1080p/a.ts')));
+check('Output starts with an MP4 header',!!writes[0]&&String.fromCharCode(...writes[0].slice(4,8))==='ftyp');
+check('Completion is visible',dialog.querySelector('[role=status]').textContent.includes('Готово'));
+check('Completed episode has an accessible full progress bar',dialog.querySelector('progress').value===100&&dialog.querySelector('[data-percent]').textContent==='100%'&&dialog.querySelector('progress').getAttribute('aria-label'));
+check('Episode, queue and quality are separate from the status message',dialog.querySelector('[data-episode]').textContent==='Серия 2'&&dialog.querySelector('[data-queue]').textContent==='1 из 1'&&dialog.querySelector('[data-quality]').textContent==='1080p · MP4');
+dialog.querySelector('[data-cancel]').click();await tick();requests=[];
+document.querySelector('#dubtv-plus-download-current').click();await settled();
+check('Player arrow downloads current quality without a dialog',!dialog.open&&closed===2&&requests.some(u=>u.includes('/2/720p/a.ts')));
+check('Player toast shows the same progress bar and current quality',document.querySelector('#dubtv-plus-download-progress progress').value===100&&document.querySelector('#dubtv-plus-download-progress [data-quality]').textContent==='720p · MP4');
+const fullscreenHost=document.createElement('div');document.body.append(fullscreenHost);
+Object.defineProperty(document,'fullscreenElement',{value:fullscreenHost,configurable:true});document.dispatchEvent(new Event('fullscreenchange'));
+check('Progress and cancel are visible inside fullscreen',fullscreenHost.contains(document.querySelector('#dubtv-plus-download-progress')));
+Object.defineProperty(document,'fullscreenElement',{value:null,configurable:true});document.dispatchEvent(new Event('fullscreenchange'));
+check('Progress returns to the page after fullscreen',document.querySelector('#dubtv-plus-download-progress').parentElement===document.body);
+document.querySelector('#dubtv-plus-download-progress button').click();
+files.clear();
+document.querySelector('#dubtv-plus-download-open').click();await tick();
+writes=[];closed=0;requests=[];dialog.querySelector('[name=episode]').value='all';dialog.querySelector('form').requestSubmit();await settled();
+check('Whole title saves sequential episodes',closed===2&&writes.length===6&&requests.filter(u=>u.endsWith('master.m3u8')).length===2);
+dialog.querySelector('form').requestSubmit();await settled();
+check('Existing files are neither overwritten nor removed',writes.length===6&&files.size===2&&removed===0&&dialog.querySelector('[role=status]').textContent.includes('уже существует'));
+files.clear();failSegment=true;dialog.querySelector('form').requestSubmit();await settled();
+check('Failed title download removes only its incomplete file',removed===1&&files.size===0);
+failSegment=true;aborted=0;dialog.querySelector('[name=episode]').value='1';dialog.querySelector('form').requestSubmit();await settled();
+check('HTTP failure aborts incomplete file',aborted===1&&dialog.querySelector('[role=status]').textContent.includes('503'));
+check('Retry clears the previous completed progress',dialog.querySelector('progress').value===0);
+failSegment=false;pauseSecond=true;aborted=0;dialog.querySelector('form').requestSubmit();
+for(let i=0;i<150&&dialog.querySelector('progress').value!==50;i++)await new Promise(r=>setTimeout(r,20));
+check('One of two fragments updates both bar and percentage to 50',dialog.querySelector('progress').value===50&&dialog.querySelector('[data-percent]').textContent==='50%'&&dialog.querySelector('[data-size]').textContent.endsWith(' МБ'));
+dialog.querySelector('[data-cancel]').click();await tick();pauseSecond=false;slowSegment=true;
+check('Cancellation aborts pending request and file',aborted===1&&!dialog.open);
+check('Single episode cancellation deletes its empty file',files.size===0&&removed===3);
+document.querySelector('#dubtv-plus-download-open').click();await tick();dialog.querySelector('[name=episode]').value='all';dialog.querySelector('form').requestSubmit();await tick();dialog.querySelector('[data-cancel]').click();await tick();
+check('Title cancellation cleans up its new empty file',files.size===0&&removed===4);
+document.querySelector('#dubtv-plus-download-current').click();await tick();window.dispatchEvent(new Event('pagehide'));await tick();
+check('Page reload cancels the request and removes the empty file',files.size===0&&removed===5);
+slowSegment=false;
+delete window.showSaveFilePicker;delete window.showDirectoryPicker;
+requests=[];
+document.querySelector('#dubtv-plus-download-open').click();await tick();dialog.querySelector('[name=episode]').value='all';dialog.querySelector('form').requestSubmit();await settled();
+const save=dialog.querySelector('[data-save]');
+check('Safari fallback exposes one completed episode',!save.hidden&&save.download.endsWith('.mp4')&&save.href.startsWith('blob:'));
+check('Fallback does not buffer whole title at once',!requests.some(u=>u.includes('/2/'))&&dialog.querySelector('[data-queue]').textContent==='1 из 2');
+save.addEventListener('click',event=>event.preventDefault(),{once:true});save.click();await tick();
+check('Next episode waits until the previous file is saved',!dialog.querySelector('[data-next]').hidden&&save.download.includes('01'));
+dialog.querySelector('[data-next]').click();await settled();
+check('Next episode waits for an explicit save action',!save.hidden&&save.download.includes('02'));
+check('Next episode updates the series and queue in the progress card',dialog.querySelector('[data-episode]').textContent==='Серия 2'&&dialog.querySelector('[data-queue]').textContent==='2 из 2');
+dialog.querySelector('[data-cancel]').click();await tick();
+check('Fallback cancellation releases download link',save.hidden&&!save.hasAttribute('href'));
+const fileAPI=navigator.storage.getDirectory;
+navigator.storage.getDirectory=undefined;
+document.querySelector('#dubtv-plus-download-open').click();await tick();dialog.querySelector('[name=episode]').value='1';dialog.querySelector('form').requestSubmit();await settled();
+check('Download still offers a saved MP4 when the file API is unavailable',!save.hidden&&save.href.startsWith('blob:')&&save.download.includes('01'));
+const databaseOutput=new Uint8Array(await(await originalFetch(save.href)).arrayBuffer());
+check('Database download link contains the assembled MP4',databaseOutput.length>1000&&String.fromCharCode(...databaseOutput.slice(4,8))==='ftyp');
+document.querySelector('[data-cancel]').click();await tick();navigator.storage.getDirectory=fileAPI;
+const databaseRequest=indexedDB.open('dubtv-plus-downloads',1);
+const remainingParts=await new Promise((resolve,reject)=>{databaseRequest.onerror=()=>reject(databaseRequest.error);databaseRequest.onsuccess=()=>{const db=databaseRequest.result,tx=db.transaction('parts'),request=tx.objectStore('parts').getAllKeys();tx.oncomplete=()=>{db.close();resolve(request.result);};tx.onabort=()=>{db.close();reject(tx.error);};};});
+check('Closing a database download removes its temporary parts and link',remainingParts.length===0&&save.hidden&&!save.hasAttribute('href'));
+const storageDirectory=await navigator.storage.getDirectory(),cacheDirectory=await storageDirectory.getDirectoryHandle('dubtv-plus-downloads',{create:true});
+const cacheNames=async()=>{const result=[];for await(const name of cacheDirectory.keys())result.push(name);return result.sort();};
+const cacheBefore=await cacheNames(),nativeDirectory=navigator.storage.getDirectory;let releaseCacheCreation;
+navigator.storage.getDirectory=()=>new Promise(resolve=>{releaseCacheCreation=()=>resolve(storageDirectory);});
+document.querySelector('#dubtv-plus-download-current').click();
+for(let i=0;i<150&&!releaseCacheCreation;i++)await new Promise(r=>setTimeout(r,20));
+check('Temporary file creation can be pending during navigation',typeof releaseCacheCreation==='function');
+window.dispatchEvent(new Event('pagehide'));releaseCacheCreation?.();await settled();await tick();navigator.storage.getDirectory=nativeDirectory;
+check('Reload during temporary file creation cleans late output and unlocks downloads',JSON.stringify(await cacheNames())===JSON.stringify(cacheBefore)&&!document.querySelector('#dubtv-plus-download-current').disabled);
+history.replaceState(null,'','/catalog');refresh();check('Download control is absent outside releases',document.querySelector('#dubtv-plus-download-open').hidden);
+const slowRelease={...release,slug:'slow-test'};const slowPayload=JSON.stringify([1,'2:'+JSON.stringify({release:slowRelease})+'\n']);let resolveRelease;
+window.fetch=async()=>new Promise(resolve=>{resolveRelease=()=>resolve(new Response(`<script>self.__next_f.push(${slowPayload})<\/script>`));});
+history.replaceState(null,'','/release/slow-test');refresh();document.querySelector('#dubtv-plus-download-open').click();await tick();
+dialog.querySelector('[data-cancel]').click();document.querySelector('#dubtv-plus-download-open').click();
+resolveRelease();await tick();
+check('Closing and reopening during metadata loading does not duplicate series',dialog.querySelector('[name=episode]').options.length===3);
+dialog.querySelector('[data-cancel]').click();
+document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+</script>
