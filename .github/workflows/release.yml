@@ -16,7 +16,7 @@ jobs:
           node-version: '22'
       - run: node build.mjs --check
       - run: node --check dubtv-plus.user.js
-      - run: node --test tests/metadata.mjs
+      - run: node --test tests/metadata.mjs tests/mp4.mjs tests/download-stream.mjs
       - name: Verify tag and upload assets
         env:
           GH_TOKEN: ${{ github.token }}

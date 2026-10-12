@@ -7,7 +7,7 @@ const release={slug:'download-test',titleRu:'Тестовый тайтл',episod
 const description='Длинный текст\nна русском языке';
 const payload=JSON.stringify([1,'1:T'+new TextEncoder().encode(description).length.toString(16)+','+description+'2:'+JSON.stringify({release})+'\n']);
 const metadata=document.createElement('script');metadata.type='application/json';metadata.textContent=`self.__next_f.push(${payload})`;document.body.append(metadata);
-let failSegment=false,slowSegment=false,pauseSecond=false,requests=[],writes=[],closed=0,aborted=0;
+let failSegment=false,slowSegment=false,pauseSecond=false,requests=[],writes=[],cacheModes=[],closed=0,aborted=0;
 const files=new Set();let removed=0;
 const packet=new Uint8Array(188);packet[0]=0x47;
 const master='#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1920x1080\n1080p/index.m3u8\n#EXT-X-STREAM-INF:RESOLUTION=1280x720\n720p/index.m3u8\n#EXT-X-STREAM-INF:RESOLUTION=854x480\n480p/index.m3u8';
@@ -15,6 +15,7 @@ const playlist='#EXTM3U\n#EXTINF:1,\na.ts\n#EXTINF:1,\nb.ts\n#EXT-X-ENDLIST';
 const originalFetch=window.fetch;
 window.fetch=async (url,options={})=>{
  requests.push(String(url));
+ if(String(url).startsWith('https://cdn.example/'))cacheModes.push(options.cache);
  if(String(url).startsWith('/release/'))return new Response(`<script>self.__next_f.push(${payload})<\/script>`);
  if(String(url).endsWith('master.m3u8'))return new Response(master);
  if(String(url).endsWith('index.m3u8'))return new Response(playlist);
@@ -24,8 +25,9 @@ window.fetch=async (url,options={})=>{
 function writable(){return {write:async value=>writes.push(value),close:async()=>closed++,abort:async()=>aborted++};}
 window.showSaveFilePicker=async()=>({createWritable:async()=>writable()});
 window.showDirectoryPicker=async()=>({removeEntry:async name=>{files.delete(name);removed++;},getFileHandle:async(name,options)=>{if(!options?.create&&!files.has(name))throw new DOMException('missing','NotFoundError');if(options?.create)files.add(name);return {getFile:async()=>({size:0}),createWritable:async()=>writable()};}});
-</script><script src="/src/library.js"></script><script src="/vendor/mux-mp4.min.js"></script><script>const muxmp4=muxjs;</script><script src="/src/download.js"></script>
+</script><script src="/src/library.js"></script><script src="/vendor/mux-mp4.min.js"></script><script>const muxmp4=muxjs;</script><script>window.downloadReady=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/src/download.js?test='+Date.now();script.onload=resolve;script.onerror=reject;document.head.append(script);});</script>
 <script type="module">
+await window.downloadReady;
 let passed=0,failed=0;
 function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
 function throws(text){try{parseDownloadPlaylist(text,'https://cdn.example/1/master.m3u8');return false;}catch{return true;}}
@@ -53,6 +55,7 @@ check('Maximum quality is selected by default',dialog.querySelector('[name=quali
 check('Current episode is selected',dialog.querySelector('[name=episode]').value==='2');
 dialog.querySelector('form').requestSubmit();await settled();
 check('Single episode is streamed and closed',closed===1&&writes.length===3&&requests.some(u=>u.includes('/2/1080p/a.ts')));
+check('Video requests bypass the browser HTTP cache',cacheModes.length>0&&cacheModes.every(mode=>mode==='no-store'));
 check('Output starts with an MP4 header',!!writes[0]&&String.fromCharCode(...writes[0].slice(4,8))==='ftyp');
 check('Completion is visible',dialog.querySelector('[role=status]').textContent.includes('Готово'));
 check('Completed episode has an accessible full progress bar',dialog.querySelector('progress').value===100&&dialog.querySelector('[data-percent]').textContent==='100%'&&dialog.querySelector('progress').getAttribute('aria-label'));
@@ -115,7 +118,7 @@ check('Closing a database download removes its temporary parts and link',remaini
 const storageDirectory=await navigator.storage.getDirectory(),cacheDirectory=await storageDirectory.getDirectoryHandle('dubtv-plus-downloads',{create:true});
 const cacheNames=async()=>{const result=[];for await(const name of cacheDirectory.keys())result.push(name);return result.sort();};
 const cacheBefore=await cacheNames(),nativeDirectory=navigator.storage.getDirectory;let releaseCacheCreation;
-navigator.storage.getDirectory=()=>new Promise(resolve=>{releaseCacheCreation=()=>resolve(storageDirectory);});
+let delayCreation=true;navigator.storage.getDirectory=()=>delayCreation?(delayCreation=false,new Promise(resolve=>{releaseCacheCreation=()=>resolve(storageDirectory);})):Promise.resolve(storageDirectory);
 document.querySelector('#dubtv-plus-download-current').click();
 for(let i=0;i<150&&!releaseCacheCreation;i++)await new Promise(r=>setTimeout(r,20));
 check('Temporary file creation can be pending during navigation',typeof releaseCacheCreation==='function');

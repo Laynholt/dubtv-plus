@@ -136,7 +136,7 @@ function createReleaseLayoutTools() {
           metadata.set(card.url.pathname,{...known,...found,details:details(doc),...(description?{description}:{}),...(genres.length?{genres}:{})});
         } catch { /* The original card remains usable when public metadata is unavailable. */ }
         finally { clearTimeout(timeout); }
-      })();
+      })().finally(()=>requests.delete(card.url.pathname));
       requests.set(card.url.pathname,request);
     }
     await requests.get(card.url.pathname);
@@ -226,7 +226,8 @@ function createReleaseLayoutTools() {
           else if (comments.previousElementSibling!==section) comments.before(section);
         } else {section.remove();hidePreview();}
       } else {section.remove();signature = '';hidePreview();}
-    } else {proxy.remove();section.remove();hidePreview();resizeObserver.disconnect();}
+    } else {proxy.remove();section.remove();hidePreview();}
+    if(resizeRoot&&!next.has(resizeRoot)){resizeObserver.disconnect();resizeRoot=resizeProgress=undefined;}
     for (const [element,className] of marked) if(!next.has(element)) {element.classList.remove(className);if(className==='dtvp-series-root')element.style.removeProperty('--dtvp-series-bottom');}
     marked.clear(); for(const [element,className] of next)marked.set(element,className);
   }

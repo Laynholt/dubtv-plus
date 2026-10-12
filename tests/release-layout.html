@@ -130,6 +130,13 @@ observer.disconnect();check('Native episode changes update toolbar count',proxy.
 check('Refresh settles without a recursive mutation loop',mutations>0&&mutations<10);
 root.querySelector('[aria-label^="Качество:"]').remove();refresh();await tick();check('Settings wrapper is a safe fallback toolbar anchor',proxy.nextElementSibling?.querySelector('button[aria-label="Настройки"]'));
 const originalNative=native;fixture();refresh();await tick();
+ const retainedRoot=main.querySelector('.native-player');
+ history.replaceState(null,'','/catalog');window.dispatchEvent(new PopStateEvent('popstate'));refresh();await tick();
+ history.replaceState(null,'','/release/layout-test');window.dispatchEvent(new PopStateEvent('popstate'));refresh();await tick();
+ const retainedProgress=retainedRoot.querySelector('[aria-label="Прогресс воспроизведения"]');retainedProgress.style.height='32px';await tick();
+ const expectedBottom=`${Math.max(0,retainedRoot.getBoundingClientRect().bottom-retainedProgress.getBoundingClientRect().top)}px`;
+ check('Returning to the same player restores series-panel resize tracking',retainedRoot.style.getPropertyValue('--dtvp-series-bottom')===expectedBottom);
+ retainedProgress.style.height='';await tick();
 const newNative=main.querySelector('.native-top button');document.querySelector('#dtvp-series-button').click();refresh();await tick();
 check('Player replacement binds proxy to current native callback',originalNative!==newNative&&newNative.getAttribute('aria-expanded')==='true'&&document.querySelectorAll('#dtvp-series-button').length===1);
 check('SPA replacement recreates only current franchise rows',document.querySelectorAll('#dtvp-franchise').length===1&&document.querySelector('#dtvp-franchise').previousElementSibling.id==='description');
@@ -146,7 +153,9 @@ main.querySelector('#original-franchise a[href="/release/reference"]').setAttrib
 const failureRow=document.querySelectorAll('#dtvp-franchise a')[1];failureRow.focus();await tick();
 check('Fetch failure preserves original card preview and navigation',!preview.hidden&&preview.textContent.includes('Второй сезон')&&failureRow.pathname==='/release/gamma'&&!preview.textContent.includes('Дата'));
 check('Unavailable fields are omitted',!preview.textContent.includes('NaN')&&!preview.textContent.includes('undefined')&&!preview.querySelector('.dtvp-preview-tags'));
-failureRow.blur();fail=false;redirect=true;main.querySelector('#original-franchise a[href="/release/gamma"]').setAttribute('href','/release/redirected');main.querySelector('#original-franchise a[href="/release/redirected"] p').textContent='Второй сезон';refresh();await tick();
+ failureRow.blur();fail=false;const failedCalls=calls.filter(c=>c.url==='/release/gamma').length;failureRow.focus();await tick();
+ check('Preview retries after the network recovers',calls.filter(c=>c.url==='/release/gamma').length===failedCalls+1&&preview.textContent.includes('07.07.2026'));
+ failureRow.blur();redirect=true;main.querySelector('#original-franchise a[href="/release/gamma"]').setAttribute('href','/release/redirected');main.querySelector('#original-franchise a[href="/release/redirected"] p').textContent='Второй сезон';refresh();await tick();
 document.querySelectorAll('#dtvp-franchise a')[1].focus();await tick();check('Redirect to a different release cannot supply metadata',!preview.textContent.includes('Описание второго сезона')&&!preview.textContent.includes('Дата'));
 redirect=false;delay=true;main.querySelector('#original-franchise a[href="/release/redirected"]').setAttribute('href','/release/pending');main.querySelector('#original-franchise a[href="/release/pending"] p').textContent='Второй сезон';refresh();await tick();document.querySelectorAll('#dtvp-franchise a')[1].focus();await tick();
 history.replaceState(null,'','/catalog');window.dispatchEvent(new PopStateEvent('popstate'));refresh();await tick();releasePending();await tick();check('Async metadata cannot reopen preview after navigation',preview.hidden&&!document.querySelector('#dtvp-franchise'));

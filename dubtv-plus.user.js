@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DubTV+
 // @namespace    dubtv-plus
-// @version      1.1.0
+// @version      1.1.1
 // @author       laynholt
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4Ij4KICA8cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcng9IjI4IiBmaWxsPSIjMTgxODFjIi8+CiAgPGcgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSI5MDAiIGZvbnQtc2l6ZT0iMzkiIHRleHQtYW5jaG9yPSJtaWRkbGUiPgogICAgPGcgZmlsbD0iI2I4M2IyYiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMiAzKSI+PHRleHQgeD0iNjQiIHk9IjU2Ij5EVUI8L3RleHQ+PHRleHQgeD0iNDgiIHk9Ijk2Ij5UVjwvdGV4dD48L2c+CiAgICA8ZyBmaWxsPSIjZjRmMmVlIj48dGV4dCB4PSI2NCIgeT0iNTYiPkRVQjwvdGV4dD48dGV4dCB4PSI0OCIgeT0iOTYiPlRWPC90ZXh0PjwvZz4KICA8L2c+CiAgPHBhdGggZD0iTTk2IDcwdjI2bS0xMy0xM2gyNiIgc3Ryb2tlPSIjZmY2ODQyIiBzdHJva2Utd2lkdGg9IjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K
 // @homepageURL  https://github.com/Laynholt/dubtv-plus
@@ -740,7 +740,8 @@ function readDownloadRelease(doc, pathname) {
   if (!slug) return;
   for (const item of pageObjects(doc)) {
     if (item.slug !== slug || typeof item.titleRu !== 'string' || !Array.isArray(item.episodes)) continue;
-    const episodes = item.episodes.filter(e => Number.isSafeInteger(e?.episodeNumber) && e.episodeNumber > 0 && typeof e.videoUrlM3u8 === 'string' && e.videoUrlM3u8.trim());
+    if(item.isLicensed===true)return;
+    const episodes = item.episodes.filter(e => Number.isSafeInteger(e?.episodeNumber) && e.episodeNumber > 0 && (typeof e.videoUrlM3u8 === 'string' && e.videoUrlM3u8.trim() || e.hasVideo===true&&typeof e.id==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(e.id)));
     if (episodes.length) return {title: item.titleRu, episodes: episodes.sort((a,b) => a.episodeNumber-b.episodeNumber)};
   }
 }
@@ -749,6 +750,23 @@ function downloadUrl(value, base) {
   const url = new URL(value, base);
   if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Неподдерживаемый адрес видео.');
   return url.href;
+}
+
+async function downloadEpisodeUrl(episode, signal) {
+  signal.throwIfAborted();
+  if(typeof episode.videoUrlM3u8==='string'&&episode.videoUrlM3u8.trim())return downloadUrl(episode.videoUrlM3u8,location.href);
+  if(episode.hasVideo!==true||typeof episode.id!=='string'||!/^[a-zA-Z0-9_-]{1,128}$/.test(episode.id))throw Error('Не удалось определить серию для скачивания.');
+  const controller=new AbortController(),cancel=()=>controller.abort();
+  signal.addEventListener('abort',cancel,{once:true});if(signal.aborted)cancel();
+  const timer=setTimeout(cancel,10000);
+  try{
+    const response=await fetch('/api/episodes/'+encodeURIComponent(episode.id)+'/stream',{credentials:'same-origin',cache:'no-store',signal:controller.signal});
+    const data=await response.json().catch(()=>({}));
+    controller.signal.throwIfAborted();
+    if(!response.ok)throw Error(typeof data.error==='string'?data.error.slice(0,300):`Ошибка сервера: ${response.status}.`);
+    if(typeof data.url!=='string'||!data.url.trim())throw Error('Сервер не вернул ссылку на видео.');
+    return downloadUrl(data.url,location.href);
+  }finally{clearTimeout(timer);signal.removeEventListener('abort',cancel);}
 }
 
 function parseDownloadPlaylist(text, url) {
@@ -784,7 +802,7 @@ async function downloadRead(url, signal, text = false, limit = 32 * 1024 * 1024)
   if (signal.aborted) cancel();
   const timer = setTimeout(cancel, 45000);
   try {
-    const response = await fetch(url, {signal:controller.signal, credentials:'omit'});
+    const response = await fetch(url, {signal:controller.signal, credentials:'omit', cache:'no-store'});
     if (!response.ok) throw new Error(`Ошибка сервера: ${response.status}.`);
     const reader = response.body.getReader();
     const chunks = []; let size = 0;
@@ -865,8 +883,8 @@ function downloadCacheWorker() {
   };
 }
 
-async function createDownloadDatabaseCache() {
-  const db=await new Promise((resolve,reject)=>{
+function openDownloadDatabase() {
+  return new Promise((resolve,reject)=>{
     const request=indexedDB.open('dubtv-plus-downloads',1);let settled=false;
     const timer=setTimeout(()=>{settled=true;reject(Error('Хранилище не ответило за 10 секунд.'));},10000);
     request.onupgradeneeded=()=>request.result.createObjectStore('parts');
@@ -874,8 +892,32 @@ async function createDownloadDatabaseCache() {
     request.onerror=()=>{clearTimeout(timer);settled=true;reject(request.error);};
     request.onblocked=()=>{clearTimeout(timer);settled=true;reject(Error('Хранилище занято другой вкладкой.'));};
   });
+}
+
+async function cleanupDownloadCaches() {
+  // A live owner holds its lock until removal; closing a tab releases the lock automatically.
+  // shortcut: without Web Locks, skip orphan recovery; add leases if older browsers need it.
+  if(typeof navigator.locks?.request!=='function')return;
+  const ids=new Set(),uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+  let directory,db;const errors=[];
+  try{
+    try{directory=await(await navigator.storage.getDirectory()).getDirectoryHandle('dubtv-plus-downloads');for await(const name of directory.keys())if(name.endsWith('.mp4')&&uuid.test(name.slice(0,-4)))ids.add(name.slice(0,-4));}
+    catch(error){if(error.name!=='NotFoundError'&&typeof navigator.storage?.getDirectory==='function')errors.push(error);}
+    try{db=await openDownloadDatabase();const keys=await new Promise((resolve,reject)=>{const tx=db.transaction('parts'),request=tx.objectStore('parts').getAllKeys();tx.oncomplete=()=>resolve(request.result);tx.onabort=()=>reject(tx.error);});for(const key of keys)if(Array.isArray(key)&&uuid.test(key[0]))ids.add(key[0]);}
+    catch(error){errors.push(error);}
+    for(const id of ids)await navigator.locks.request('dubtv-plus-download:'+id,{ifAvailable:true},async lock=>{
+      if(!lock)return;
+      if(directory)try{await directory.removeEntry(id+'.mp4');}catch(error){if(error.name!=='NotFoundError')errors.push(error);}
+      if(db)try{await new Promise((resolve,reject)=>{const tx=db.transaction('parts','readwrite');tx.objectStore('parts').delete(IDBKeyRange.bound([id,0],[id,Number.MAX_SAFE_INTEGER]));tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});}catch(error){errors.push(error);}
+    });
+  }finally{db?.close();}
+  if(errors.length)throw Error(errors.map(error=>error.message).join(' '));
+}
+
+async function createDownloadDatabaseCache(id) {
+  const db=await openDownloadDatabase();
   db.onversionchange=()=>db.close();
-  const id=crypto.randomUUID(),range=IDBKeyRange.bound([id,0],[id,Number.MAX_SAFE_INTEGER]);
+  const range=IDBKeyRange.bound([id,0],[id,Number.MAX_SAFE_INTEGER]);
   function transact(mode,action){
     return new Promise((resolve,reject)=>{
       const tx=db.transaction('parts',mode);let request;
@@ -884,24 +926,73 @@ async function createDownloadDatabaseCache() {
       try{request=action(tx.objectStore('parts'));}catch(error){tx.abort();reject(error);}
     });
   }
-  try{await transact('readwrite',store=>{store.put(new Blob([]),[id,-1]);return store.delete([id,-1]);});}
+  try{await transact('readwrite',store=>{store.put(new Uint8Array(0),[id,-1]);return store.delete([id,-1]);});}
   catch(error){db.close();throw error;}
-  let index=0,queue=Promise.resolve(),closing=false,removal;
+  const sizes=[];let queue=Promise.resolve(),closing=false,removal;
   const enqueue=action=>{const response=queue.then(action);queue=response.catch(()=>{});return response;};
   return {
     kind:'indexeddb',
-    write(bytes){if(closing)throw Error('Загрузка уже закрыта.');const part=new Blob([bytes]);return enqueue(()=>transact('readwrite',store=>store.put(part,[id,index++])));},
-    finish(){if(closing)throw Error('Загрузка уже закрыта.');return enqueue(async()=>new Blob(await transact('readonly',store=>store.getAll(range)),{type:'video/mp4'}));},
+    // Safari can return stored Blobs with the right size but unreadable contents; store a byte snapshot instead.
+    write(bytes){if(closing)throw Error('Загрузка уже закрыта.');const part=bytes.slice();return enqueue(async()=>{await transact('readwrite',store=>store.put(part,[id,sizes.length]));sizes.push(part.byteLength);});},
+    finish(){if(closing)throw Error('Загрузка уже закрыта.');return enqueue(async()=>{
+      const parts=[];
+      // Read each known key so a bulk result cannot silently omit the first fragment.
+      for(let index=0;index<sizes.length;index++){
+        const part=await transact('readonly',store=>store.get([id,index]));
+        if(!(part instanceof Uint8Array)||part.byteLength!==sizes[index])throw Error(`IndexedDB: фрагмент ${index+1} из ${sizes.length}: ожидалось ${sizes[index]} байт, прочитано ${part?.byteLength??0}.`);
+        parts.push(new Blob([part]));
+      }
+      // An empty byte prefix avoids Safari dropping the first Blob during assembly.
+      const expected=sizes.reduce((total,size)=>total+size,0),output=new Blob([new Uint8Array(0),...parts],{type:'video/mp4'});
+      if(output.size!==expected)throw Error(`IndexedDB: прочитано ${parts.length} фрагментов (${expected} байт), после сборки ${output.size} байт.`);
+      return output;
+    });},
     remove(){closing=true;return removal??=enqueue(()=>transact('readwrite',store=>store.delete(range))).finally(()=>db.close());},
   };
 }
 
 async function createDownloadCache(onUnavailable=()=>{}) {
-  let directory, name, worker, writable, workerURL, filesystemError;
+  const id=crypto.randomUUID();let unlock;
+  if(typeof navigator.locks?.request==='function'){
+    try{unlock=await new Promise((resolve,reject)=>{navigator.locks.request('dubtv-plus-download:'+id,()=>new Promise(release=>resolve(release))).catch(reject);});}
+    catch(error){onUnavailable(error.message);return;}
+  }
+  try{
+    const cache=await createDownloadCacheStorage(id,onUnavailable);
+    if(!cache){unlock?.();return;}
+    const remove=cache.remove;let removal;
+    cache.remove=()=>removal??=Promise.resolve().then(()=>remove()).finally(()=>unlock?.());
+    return cache;
+  }catch(error){unlock?.();throw error;}
+}
+
+async function createDownloadCacheStorage(id,onUnavailable) {
+  const errors=[],firstSize=2*1024*1024,expected=firstSize+65536;
+  for(const [label,create] of [['Файлы',createDownloadFileCache],['База',createDownloadDatabaseCache]]){
+    let probe;
+    try{
+      // Verify the first append and exported bytes before committing a whole episode to this backend.
+      probe=await create(id);
+      await probe.write(new Uint8Array(firstSize).fill(0x47));
+      await probe.write(new Uint8Array(65536).fill(0xa5));
+      const bytes=new Uint8Array(await(await probe.finish()).arrayBuffer());
+      if(bytes.length!==expected||!bytes.every((byte,index)=>byte===(index<firstSize?0x47:0xa5)))throw Error(`Проверка записи: ожидалось ${expected} байт, прочитано ${bytes.length}; данные не совпадают.`);
+      await probe.remove();probe=undefined;
+      return await create(id);
+    }catch(error){
+      try{await probe?.remove();}catch(cleanup){errors.push(`${label}: очистка: ${cleanup.message}.`);}
+      errors.push(`${label}: ${error.name}: ${error.message}.`);
+    }
+  }
+  onUnavailable(errors.join(' '));
+}
+
+async function createDownloadFileCache(id) {
+  let directory, name, worker, writable, workerURL;
   try {
     if(typeof navigator.storage?.getDirectory!=='function')throw Error('API временных файлов недоступен.');
     directory=await (await navigator.storage.getDirectory()).getDirectoryHandle('dubtv-plus-downloads',{create:true});
-    name=crypto.randomUUID()+'.mp4';
+    name=id+'.mp4';
     const file=await directory.getFileHandle(name,{create:true});
     if(typeof file.createWritable==='function')writable=await file.createWritable();
     else {
@@ -928,11 +1019,9 @@ async function createDownloadCache(onUnavailable=()=>{}) {
       async remove(){if(!closed){try{await writable.abort();}catch{/* Always remove the temporary file, including after a failed write. */}finally{closed=true;}}worker?.terminate();await directory.removeEntry(name);},
     };
   }catch(error){
-    filesystemError=error;
     worker?.terminate();if(directory&&name)try{await directory.removeEntry(name);}catch{/* Private storage may be unavailable. */}
+    throw error;
   }finally{if(workerURL)URL.revokeObjectURL(workerURL);}
-  try{return await createDownloadDatabaseCache();}
-  catch(error){onUnavailable(`Файлы: ${filesystemError.name}: ${filesystemError.message}. База: ${error.name}: ${error.message}.`);}
 }
 
 function createDownloadTools(panel) {
@@ -940,12 +1029,14 @@ function createDownloadTools(panel) {
   const dialog = document.createElement('dialog');
   dialog.id = 'dubtv-plus-download'; dialog.className = 'dtvp-dialog';
   dialog.setAttribute('aria-label', 'Скачать серии');
-  dialog.innerHTML = '<form><h2>Скачать серии</h2><p data-title></p><div class="dtvp-download-fields"><label class="dtvp-field">Серия<select name="episode"></select></label><label class="dtvp-field">Качество<select name="quality"><option value="max">Максимальное</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option></select></label></div>' + progressMarkup + '<p role="status" aria-live="polite"></p><p class="dtvp-download-note">MP4 · На ПК — в выбранную папку. В Safari — по одной серии. При доступном временном хранилище лимита 256 МБ нет.</p><div class="dtvp-actions"><button type="button" data-cancel>Закрыть</button><a data-save hidden>Сохранить MP4</a><button type="button" data-next hidden>Продолжить</button><button type="submit" class="dtvp-primary">Скачать</button></div></form>';
+  dialog.innerHTML = '<form><h2>Скачать серии</h2><p data-title></p><div class="dtvp-download-fields"><label class="dtvp-field">Серия<select name="episode"></select></label><label class="dtvp-field">Качество<select name="quality"><option value="max">Максимальное</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option></select></label></div>' + progressMarkup + '<p role="status" aria-live="polite"></p><p class="dtvp-download-note">MP4 · На ПК — в выбранную папку. В Safari — по одной серии. При доступном временном хранилище лимита 256 МБ нет.</p><div class="dtvp-actions"><button type="button" data-cancel>Закрыть</button><a data-save hidden>Скачать файл</a><button type="button" data-next hidden>Продолжить</button><button type="submit" class="dtvp-primary">Скачать</button></div></form>';
   const toast = document.createElement('div'); toast.id = 'dubtv-plus-download-progress'; toast.hidden = true;
-  toast.innerHTML = '<div class="dtvp-transfer-title">Скачивание серии</div>' + progressMarkup + '<div role="status" aria-live="polite"></div><div class="dtvp-transfer-actions"><a hidden>Сохранить MP4</a><button type="button">Закрыть</button></div>';
+  toast.innerHTML = '<div class="dtvp-transfer-title">Скачивание серии</div>' + progressMarkup + '<div role="status" aria-live="polite"></div><div class="dtvp-transfer-actions"><a hidden>Скачать файл</a><button type="button">Закрыть</button></div>';
   const style = document.createElement('style');
-  style.textContent = '#dubtv-plus-download-progress{position:fixed;top:16px;right:16px;z-index:10002;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:14px;background:var(--color-surface,#141418);color:var(--color-text-primary,#f0f0f0);border:1px solid var(--color-border,#2a2a32);border-radius:10px;font:13px/1.5 system-ui;box-shadow:0 4px 24px #0006}#dubtv-plus-download-progress[hidden]{display:none}#dubtv-plus-download-progress a{display:block;color:var(--color-primary-light,#f08a73);margin-top:8px}#dubtv-plus-download-progress a[hidden]{display:none}#dubtv-plus-download-progress button{display:block;margin-top:10px;background:var(--color-surface-hover,#1c1c22);color:inherit;border:0;border-radius:6px;padding:6px 10px;font:inherit;cursor:pointer}#dubtv-plus-download-progress :focus-visible{outline:2px solid #f08a73;outline-offset:2px}';
+  style.textContent = '#dubtv-plus-download-progress{position:fixed;top:16px;right:16px;z-index:10002;width:min(360px,calc(100vw - 32px));box-sizing:border-box;background:var(--color-surface,#141418);color:var(--color-text-primary,#f0f0f0);border:1px solid var(--color-border,#2a2a32);font:13px/1.5 system-ui;box-shadow:0 4px 24px #0006}#dubtv-plus-download-progress a{display:block;color:var(--color-primary-light,#f08a73);}#dubtv-plus-download-progress button{display:block;background:var(--color-surface-hover,#1c1c22);color:inherit;border:0;border-radius:6px;padding:6px 10px;font:inherit;cursor:pointer}#dubtv-plus-download-progress :focus-visible{outline:2px solid #f08a73;outline-offset:2px}';
   style.textContent += `
+    #dubtv-plus-download-progress [hidden]{display:none!important}
+    #dubtv-plus-download-progress .dtvp-transfer-actions{flex-wrap:wrap}
     #dubtv-plus-download-open{display:inline-flex;align-items:center;gap:8px;font-weight:600;margin-top:6px}#dubtv-plus-download-open[hidden]{display:none!important}
     #dubtv-plus-download .dtvp-download-fields{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px}
     #dubtv-plus-download .dtvp-download-note{font-size:12px;margin:16px 0 0;line-height:1.6}
@@ -996,23 +1087,28 @@ function createDownloadTools(panel) {
   quick.innerHTML = '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4"/></svg>';
   open.prepend(quick.firstElementChild.cloneNode(true));
   quick.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:36px;height:40px;flex-shrink:0';
-  let release, releasePath, loading, attemptedPath, operation, pendingSave, blobUrl, quickMode = false, opening = 0, cachedFile;
+  let release, releasePath, loading, attemptedPath, operation, pendingSave, blobUrl, quickMode = false, opening = 0, cachedFile, completedFile, browserHandoff=false, recoveryError='';
+  const recovery = cleanupDownloadCaches().catch(error=>{recoveryError=error.message;});
   function controls() {
-    const busy = !!operation;
+    const busy = !!operation || !!completedFile;
     if (start.hidden !== busy) start.hidden = busy;
     for (const [element, disabled] of [[start,busy || !release || releasePath !== location.pathname],[quick,busy || !release || releasePath !== location.pathname],[episodeChoice,busy || !!loading],[qualityChoice,busy || !!loading]]) {
       if (element.disabled !== disabled) element.disabled = disabled;
     }
-    for (const element of [close,toastClose]) { const text = busy ? 'Отменить' : 'Закрыть'; if (element.textContent !== text) element.textContent = text; }
+    if(open.disabled!==busy)open.disabled=busy;
+    for (const element of [close,toastClose]) { const text = operation ? 'Отменить' : 'Закрыть'; if (element.textContent !== text) element.textContent = text; }
   }
-  function clearBlob() {
+  async function clearBlob() {
     if (blobUrl) URL.revokeObjectURL(blobUrl);
-    blobUrl = undefined; save.hidden = next.hidden = toastSave.hidden = true;
+    browserHandoff=false;
+    blobUrl = completedFile = undefined; save.hidden = next.hidden = toastSave.hidden = true;
     save.removeAttribute('href'); toastSave.removeAttribute('href');
-    const previous=cachedFile;cachedFile=undefined;previous?.remove().catch(()=>{});
+    const previous=cachedFile;cachedFile=undefined;await previous?.remove();controls();
   }
-  function stop() { operation?.abort(); pendingSave?.(); pendingSave = undefined; clearBlob(); }
-  window.addEventListener('pagehide',stop);
+  function cleanupWarning(error){const message='Не удалось очистить временные данные. Перезагрузите страницу для повторной очистки. '+error.message;status.textContent=toastStatus.textContent=message;}
+  function stop() { operation?.abort(); pendingSave?.(); pendingSave = undefined; clearBlob().catch(cleanupWarning); }
+  const keepExport=()=>!!completedFile&&browserHandoff;
+  window.addEventListener('pagehide',()=>{if(!keepExport())stop();});
   close.onclick = () => { if (!quickMode) stop(); dialog.close(); };
   toastClose.onclick = () => { stop(); toast.hidden = true; };
   dialog.addEventListener('cancel', () => { if (!quickMode) stop(); });
@@ -1033,7 +1129,7 @@ function createDownloadTools(panel) {
         data = readDownloadRelease(new DOMParser().parseFromString(await response.text(), 'text/html'), path);
       }
       request.controller.signal.throwIfAborted();
-      if (!data) throw new Error('Не удалось найти видео. Проверьте вход в аккаунт и обновите страницу.');
+      if (!data) throw new Error('Не удалось найти доступные серии в данных страницы. Обновите страницу; возможно, изменился формат сайта.');
       if (location.pathname !== path) return;
       release = data; releasePath = path;
       return data;
@@ -1041,9 +1137,9 @@ function createDownloadTools(panel) {
     return request.promise;
   }
   open.addEventListener('click', async () => {
-    if (operation) return;
+    if (operation || completedFile) return;
     const generation = ++opening;
-    clearBlob(); toast.hidden = true; dialog.querySelector('.dtvp-transfer').hidden = true; episodeChoice.replaceChildren(); qualityChoice.value = 'max';
+    await clearBlob().catch(cleanupWarning); toast.hidden = true; dialog.querySelector('.dtvp-transfer').hidden = true; episodeChoice.replaceChildren(); qualityChoice.value = 'max';
     dialog.querySelector('[data-title]').textContent = ''; status.textContent = 'Загружаю список серий…'; dialog.showModal(); controls();
     const path = location.pathname;
     try {
@@ -1058,11 +1154,16 @@ function createDownloadTools(panel) {
     } catch (error) { if (dialog.open && generation === opening) status.textContent = error.name === 'AbortError' ? 'Список серий не загрузился. Попробуйте снова.' : error.message; }
     finally { if (generation === opening) controls(); }
   });
-  save.addEventListener('click', () => { if (pendingSave) { next.hidden = false; status.textContent = 'После сохранения MP4 нажмите «Продолжить».'; } });
+  function browserSave(){
+    browserHandoff=true;
+    if(pendingSave){next.hidden=false;status.textContent='После сохранения MP4 нажмите «Продолжить».';}
+    else toastStatus.textContent='Сохраните файл в меню браузера. После завершения загрузки можно закрыть этот индикатор.';
+  }
+  for(const link of [save,toastSave])link.addEventListener('click',event=>{if(!completedFile)event.preventDefault();else browserSave();});
   next.onclick = () => { save.hidden = next.hidden = true; pendingSave?.(); pendingSave = undefined; };
   async function run(episodes, quality, direct = false) {
-    if (operation || !release || releasePath !== location.pathname || !episodes.length) return;
-    quickMode = direct; clearBlob();
+    if (operation || completedFile || !release || releasePath !== location.pathname || !episodes.length) return;
+    quickMode = direct;
     const targetStatus = direct ? toastStatus : status;
     const targetRoot = direct ? toast : dialog;
     targetRoot.querySelector('.dtvp-transfer').hidden = true;
@@ -1072,18 +1173,20 @@ function createDownloadTools(panel) {
     let cleanup;
     const clean = () => acquiring || !cache&&!writable&&!createdFile ? Promise.resolve() : cleanup ??= cache ? cache.remove() : cleanupDownloadFile(writable, directory, createdFile);
     // shortcut: pagehide cleanup is best effort; a browser shutdown can interrupt asynchronous deletion.
-    const leave = () => { stop(); clean().catch(() => {}); };
+    const leave = () => { if(keepExport())return;stop(); clean().catch(() => {}); };
     window.addEventListener('pagehide', leave);
     const baseName = release.title.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g,'').slice(0,100) || 'DubTV';
     try {
       // Pickers must run before fetching to retain user activation; quick download has no custom dialog.
       if (typeof window.showDirectoryPicker === 'function') directory = await window.showDirectoryPicker({mode:'readwrite'});
+      await clearBlob();await recovery;
       controller.signal.throwIfAborted();
       for (let index = 0; index < episodes.length; index++) {
         controller.signal.throwIfAborted();
-        const episode = episodes[index]; const masterUrl = downloadUrl(episode.videoUrlM3u8, location.href);
+        const episode = episodes[index];
         showProgress(targetRoot, episode, index, episodes.length, quality === 'max' ? 0 : Number(quality), 0);
         targetStatus.textContent = 'Подготовка видео…';
+        const masterUrl = await downloadEpisodeUrl(episode, controller.signal);
         let playlist = parseDownloadPlaylist(await downloadRead(masterUrl, controller.signal, true, 2*1024*1024), masterUrl);
         let actualQuality = quality === 'max' ? 0 : Number(quality);
         if (playlist.variants) {
@@ -1108,9 +1211,13 @@ function createDownloadTools(panel) {
         }finally{acquiring=false;}
         controller.signal.throwIfAborted();
         transmuxer = new muxmp4.Transmuxer({remux:true});
-        const chunks = []; let size = 0, initialized = false, output = [];
+        const chunks = []; let size = 0, init, output = [];
         transmuxer.on('data', data => {
-          if (!initialized) { setDownloadDuration(data.initSegment, playlist.duration); output.push(data.initSegment); initialized = true; }
+          if (!init) {
+            init = data.initSegment; setDownloadDuration(init, playlist.duration);
+            // Keep track metadata outside temporary storage until the browser file is assembled.
+            if (writable) output.push(init); else size += init.length;
+          }
           output.push(data.data);
         });
         for (let i = 0; i < playlist.segments.length; i++) {
@@ -1124,26 +1231,31 @@ function createDownloadTools(panel) {
           showProgress(targetRoot, episode, index, episodes.length, actualQuality, size, Math.round((i+1)/playlist.segments.length*100));
         }
         transmuxer.dispose(); transmuxer = undefined;
-        controller.signal.throwIfAborted(); if (!initialized || !size) throw new Error('Не удалось собрать MP4 из видео и звука.');
+        controller.signal.throwIfAborted(); if (!init || size <= init.length) throw new Error('Не удалось собрать MP4 из видео и звука.');
         targetStatus.textContent = 'Сохранение MP4…';
         if (writable) { await writable.close(); writable = undefined; createdFile = undefined; }
         else {
           const completed=cache?await cache.finish():new Blob(chunks,{type:'video/mp4'});chunks.length=0;
           controller.signal.throwIfAborted();
-          blobUrl = URL.createObjectURL(completed);cachedFile=cache;cache=undefined;
-          const link = direct ? toastSave : save; link.href = blobUrl; link.download = name; link.hidden = false;
-          if (direct) link.click();
-          else { targetStatus.textContent = 'MP4 готов. Сохраните файл, чтобы продолжить.'; await new Promise(resolve => { pendingSave = resolve; }); controller.signal.throwIfAborted(); clearBlob(); }
+          if(completed.size+init.length!==size)throw Error(`Временный файл записался не полностью (${cache?.kind??'память'}: ожидалось ${size-init.length} байт, записано ${completed.size}). Повторите загрузку.`);
+          completedFile=new File([init,completed],name,{type:'application/octet-stream'});
+          const header=new Uint8Array(await completedFile.slice(0,init.length).arrayBuffer());
+          if(completedFile.size!==size||header.length!==init.length||!header.every((byte,index)=>byte===init[index]))throw Error('Не удалось сохранить заголовок MP4. Повторите загрузку.');
+          controller.signal.throwIfAborted();
+          blobUrl=URL.createObjectURL(completedFile);cachedFile=cache;cache=undefined;
+          const link=direct?toastSave:save;link.href=blobUrl;link.download=completedFile.name;link.hidden=false;
+          targetStatus.textContent='MP4 готов. Нажмите «Скачать файл».'+(recoveryError?' Не удалось очистить прежние временные данные: '+recoveryError:'');
+          if(!direct) { await new Promise(resolve => { pendingSave = resolve; }); controller.signal.throwIfAborted(); await clearBlob(); }
         }
       }
-      targetStatus.textContent = direct && blobUrl ? 'MP4 готов. Если браузер не начал загрузку, нажмите «Сохранить MP4».' : `Готово. Скачано серий: ${episodes.length}.`;
+      if(!blobUrl)targetStatus.textContent = `Готово. Скачано серий: ${episodes.length}.`;
     } catch (error) {
       let cleanupFailed = false;
       try { await clean(); } catch { cleanupFailed = true; }
       targetStatus.textContent = controller.signal.aborted || error.name === 'AbortError' ? 'Загрузка отменена.' : `Не удалось скачать: ${error.message}`;
       if (cleanupFailed) targetStatus.textContent += ' Браузер не разрешил удалить пустой файл — удалите его из папки вручную.';
-      clearBlob();
-    } finally { window.removeEventListener('pagehide', leave); transmuxer?.dispose(); operation = undefined; pendingSave = undefined; if (!direct) clearBlob(); controls(); }
+      await clearBlob().catch(cleanupWarning);
+    } finally { window.removeEventListener('pagehide', leave); transmuxer?.dispose(); operation = undefined; pendingSave = undefined; if (!direct) await clearBlob().catch(cleanupWarning); controls(); }
   }
   dialog.querySelector('form').addEventListener('submit', event => {
     event.preventDefault();
@@ -1368,7 +1480,7 @@ function createReleaseLayoutTools() {
           metadata.set(card.url.pathname,{...known,...found,details:details(doc),...(description?{description}:{}),...(genres.length?{genres}:{})});
         } catch { /* The original card remains usable when public metadata is unavailable. */ }
         finally { clearTimeout(timeout); }
-      })();
+      })().finally(()=>requests.delete(card.url.pathname));
       requests.set(card.url.pathname,request);
     }
     await requests.get(card.url.pathname);
@@ -1458,7 +1570,8 @@ function createReleaseLayoutTools() {
           else if (comments.previousElementSibling!==section) comments.before(section);
         } else {section.remove();hidePreview();}
       } else {section.remove();signature = '';hidePreview();}
-    } else {proxy.remove();section.remove();hidePreview();resizeObserver.disconnect();}
+    } else {proxy.remove();section.remove();hidePreview();}
+    if(resizeRoot&&!next.has(resizeRoot)){resizeObserver.disconnect();resizeRoot=resizeProgress=undefined;}
     for (const [element,className] of marked) if(!next.has(element)) {element.classList.remove(className);if(className==='dtvp-series-root')element.style.removeProperty('--dtvp-series-bottom');}
     marked.clear(); for(const [element,className] of next)marked.set(element,className);
   }
@@ -1586,15 +1699,15 @@ function createReleaseLayoutTools() {
   const help = document.createElement('div');
   help.innerHTML = '<h3>Горячие клавиши</h3><dl class="dtvp-shortcuts"><dt>X / C</dt><dd>Скорость −0,25× / +0,25×</dd><dt>G</dt><dd>Перейти к времени</dd><dt>Shift + ← / →</dt><dd>Предыдущая / следующая серия</dd><dt>T / Esc</dt><dd>Кинотеатр / выход</dd><dt>Z</dt><dd>Отменить перемотку</dd></dl><p>Работают и с русской раскладкой. В полях ввода клавиши не перехватываются.</p>';
   panels.player.append(help);
-  panels.about.innerHTML = '<h3>DubTV+ · 1.1.0</h3><p>Автор: <a href="https://github.com/Laynholt" target="_blank" rel="noopener noreferrer">laynholt</a></p><p>Неофициальные улучшения DubTV для Violentmonkey.</p><p><a href="https://github.com/Laynholt/dubtv-plus" target="_blank" rel="noopener noreferrer">Исходный код</a> · <a href="https://github.com/Laynholt/dubtv-plus/releases" target="_blank" rel="noopener noreferrer">Релизы</a></p><p>Обновления из релизов проверяет Violentmonkey. Настройки и скрытые тайтлы сохраняются в этом браузере.</p>';
+  panels.about.innerHTML = '<h3>DubTV+ · 1.1.1</h3><p>Автор: <a href="https://github.com/Laynholt" target="_blank" rel="noopener noreferrer">laynholt</a></p><p>Неофициальные улучшения DubTV для Violentmonkey.</p><p><a href="https://github.com/Laynholt/dubtv-plus" target="_blank" rel="noopener noreferrer">Исходный код</a> · <a href="https://github.com/Laynholt/dubtv-plus/releases" target="_blank" rel="noopener noreferrer">Релизы</a></p><p>Обновления из релизов проверяет Violentmonkey. Настройки и скрытые тайтлы сохраняются в этом браузере.</p>';
   const report = document.createElement('a'); report.textContent='Сообщить об ошибке'; report.id='dtvp-report-bug'; report.target='_blank'; report.rel='noopener noreferrer';
-  report.href='https://github.com/Laynholt/dubtv-plus/issues/new?'+new URLSearchParams({title:'[Ошибка] ',body:'### Устройство и версии\n- Устройство:\n- ОС и версия:\n- Браузер и версия:\n- Менеджер скриптов и версия:\n- DubTV+: 1.1.0\n\n### Ссылка на тайтл или страницу\n\n### Как повторить\n1. \n2. \n\n### Ожидаемое поведение\n\n### Что происходит\n\n### Скриншоты или видео\nПрикрепите файлы к этому сообщению или добавьте ссылки.\n'});
+  report.href='https://github.com/Laynholt/dubtv-plus/issues/new?'+new URLSearchParams({title:'[Ошибка] ',body:'### Устройство и версии\n- Устройство:\n- ОС и версия:\n- Браузер и версия:\n- Менеджер скриптов и версия:\n- DubTV+: 1.1.1\n\n### Ссылка на тайтл или страницу\n\n### Как повторить\n1. \n2. \n\n### Ожидаемое поведение\n\n### Что происходит\n\n### Скриншоты или видео\nПрикрепите файлы к этому сообщению или добавьте ссылки.\n'});
   const sourceLinks=panels.about.querySelector('a[href$="/releases"]').parentElement;sourceLinks.append(' · ',report);
   document.body.append(settings);
   const refreshDownloads = createDownloadTools(panels.player);
   const refreshAutoplay = createAutoplayTools();
   const refreshReleaseLayout = createReleaseLayoutTools();
-  const refreshLibrary = typeof createLibraryTools === 'function' ? createLibraryTools(panels.library, options) : () => {};
+  const refreshLibrary = createLibraryTools(panels.library, options);
   let dragged = false;
   const openSettings = button('', event => {
     if (dragged && event.detail !== 0) { dragged = false; return; }

@@ -1,0 +1,79 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Download lifecycle tests</title>
+<main><span>Серия 1</span><div><video></video><button aria-label="Качество: 720p">720p</button></div></main><div id="panel"></div><ol id="results"></ol>
+<script>
+const fixtureOptions=new URLSearchParams(location.search),integrated=fixtureOptions.has('integrated'),deferred=fixtureOptions.has('deferred');history.replaceState(null,'','/release/lifecycle-test');
+// Reproduce the iOS file: all media fragments survived, but its initialization write was missing.
+if(fixtureOptions.has('drop-init')){
+ const nativeWrite=FileSystemWritableFileStream.prototype.write;
+ FileSystemWritableFileStream.prototype.write=function(bytes){return bytes instanceof Uint8Array&&String.fromCharCode(...bytes.slice(4,8))==='ftyp'?Promise.resolve():nativeWrite.call(this,bytes);};
+}
+if(fixtureOptions.has('worker'))FileSystemFileHandle.prototype.createWritable=undefined;
+if(fixtureOptions.has('blob-first')||fixtureOptions.has('idb-blob-empty')){
+ const nativeBlob=window.Blob;
+ window.Blob=new Proxy(nativeBlob,{construct(target,args){const [parts,options]=args;return new target(parts?.length>1&&parts[0] instanceof nativeBlob?parts.slice(1):parts,options);}});
+}
+if(fixtureOptions.has('idb-blob-empty')){
+ const nativeGet=IDBObjectStore.prototype.get;
+ IDBObjectStore.prototype.get=function(...args){const request=nativeGet.apply(this,args);request.addEventListener('success',()=>{const part=request.result;if(part instanceof Blob&&part.size!==2097152)part.arrayBuffer=async()=>new ArrayBuffer(0);});return request;};
+}
+Object.defineProperty(navigator,'platform',{value:'iPhone',configurable:true});
+const release={slug:'lifecycle-test',titleRu:'Тестовый тайтл',episodes:[{episodeNumber:1,videoUrlM3u8:'https://cdn.example/master.m3u8'}]};
+if(deferred)release.episodes=[{id:'episode-1',episodeNumber:1,hasVideo:true,videoUrlM3u8:''}];
+const metadata=document.createElement('script');metadata.textContent='self.__next_f.push('+JSON.stringify([1,'1:'+JSON.stringify({release})+'\n'])+')';metadata.type='application/json';document.body.append(metadata);
+const nativeFetch=window.fetch;const streamRequests=[];
+window.fetch=async(url,options)=>{
+ if(url==='/api/episodes/episode-1/stream'){streamRequests.push(options);return new Response(JSON.stringify({url:'https://cdn.example/master.m3u8'}),{headers:{'content-type':'application/json'}});}
+ return String(url).startsWith('https://cdn.example/')?new Response('#EXTM3U\n#EXTINF:1,\nhttps://segments.example/a.ts\n#EXTINF:1,\nhttps://segments.example/b.ts\n#EXT-X-ENDLIST'):String(url).startsWith('https://segments.example/')?nativeFetch('/tests/fixtures/sample-'+(String(url).endsWith('a.ts')?'00':'01')+'.ts'):nativeFetch(url,options);
+};
+window.showDirectoryPicker=undefined;let shareCalls=[],downloadFiles=[],copyStreams=0;const nativeObjectURL=URL.createObjectURL,nativeBlobStream=Blob.prototype.stream;URL.createObjectURL=function(blob){if(blob instanceof File&&blob.name.endsWith('.mp4'))downloadFiles.push(blob);return nativeObjectURL.call(this,blob);};Blob.prototype.stream=function(){copyStreams++;return nativeBlobStream.call(this);};
+navigator.canShare=data=>data.files.length===1&&data.files[0].name.endsWith('.mp4');
+navigator.share=data=>{shareCalls.push(data);return Promise.resolve();};
+</script><script src="/src/library.js"></script><script src="/vendor/mux-mp4.min.js"></script><script>const muxmp4=muxjs;</script><script>window.downloadReady=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=(integrated?'/dubtv-plus.user.js?test=':'/src/download.js?test=')+Date.now();script.onload=resolve;script.onerror=reject;document.head.append(script);});</script><script type="module">
+await window.downloadReady;
+let passed=0,failed=0;function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
+const tick=()=>new Promise(resolve=>setTimeout(resolve,50));
+async function waitFor(condition){for(let i=0;i<150&&!condition();i++)await tick();}
+async function stored(){const root=await navigator.storage.getDirectory(),dir=await root.getDirectoryHandle('dubtv-plus-downloads',{create:true});const names=[];for await(const name of dir.keys())names.push(name);return names;}
+const before=await stored(),refresh=integrated?()=>{}:createDownloadTools(document.querySelector('#panel'));refresh();await tick();
+const quick=document.querySelector('#dubtv-plus-download-current'),toast=document.querySelector('#dubtv-plus-download-progress'),save=toast.querySelector('a');
+if(integrated){
+ document.querySelector('#dubtv-plus-open').click();document.querySelector('#dtvp-tab-player').click();document.querySelector('#dubtv-plus-download-open').click();await tick();
+ const dialog=document.querySelector('#dubtv-plus-download'),choice=dialog.querySelector('[name=episode]');
+ check('Download dialog opened from settings discovers and enables episode choices',dialog.open&&choice.options.length===2&&!choice.disabled&&choice.value==='1');
+ dialog.querySelector('[data-cancel]').click();document.querySelector('#dubtv-plus-settings').close();await tick();
+}
+quick.click();await waitFor(()=>!save.hidden);
+if(deferred)check('Current site format resolves the selected stream through the authenticated API',streamRequests.length===1&&streamRequests[0].credentials==='same-origin'&&streamRequests[0].cache==='no-store');
+check('iOS offers a standard browser download link',!save.hidden&&save.download==='Тестовый тайтл - 01 - 720p.mp4'&&save.href.startsWith('blob:'));
+check('There is one save action with no share sheet or separate Safari menu',toast.querySelectorAll('a').length===1&&shareCalls.length===0&&!toast.querySelector('[data-done]')&&save.textContent==='Скачать файл');
+check('Large export avoids an additional full-file read or copy',copyStreams===0);
+check('Download URL preserves the File name and binary MIME type',downloadFiles.length===1&&downloadFiles[0].name===save.download&&downloadFiles[0].type==='application/octet-stream');
+check('Download does not replace the page or open an extra tab',!save.target);
+save.addEventListener('click',event=>event.preventDefault());save.click();await tick();
+check('Saving uses the browser download without invoking a native share API',shareCalls.length===0&&!save.hidden);
+window.dispatchEvent(new Event('pagehide'));await tick();
+check('Browser handoff keeps its blob URL available on pagehide',!save.hidden&&save.hasAttribute('href'));
+const bytes=new Uint8Array(await(await nativeFetch(save.href)).arrayBuffer());
+check('Browser download link still contains the complete MP4',bytes.length>1000&&String.fromCharCode(...bytes.slice(4,8))==='ftyp');
+check('Saved MP4 describes both video and audio tracks',muxmp4.probe.tracks(bytes).map(track=>track.type).sort().join(',')==='audio,video');
+toast.querySelector('button').click();await tick();await tick();
+check('Closing the indicator releases the temporary file and URL',JSON.stringify(await stored())===JSON.stringify(before)&&save.hidden&&!save.hasAttribute('href'));
+const nativeDirectory=navigator.storage.getDirectory;navigator.storage.getDirectory=undefined;
+quick.click();await waitFor(()=>!save.hidden);save.click();await tick();
+check('IndexedDB fallback also offers a normal binary download',!save.hidden&&downloadFiles.at(-1)?.type==='application/octet-stream'&&shareCalls.length===0);
+const databaseBytes=new Uint8Array(await(await nativeFetch(save.href)).arrayBuffer());
+check('IndexedDB export retains the MP4 header and both tracks',String.fromCharCode(...databaseBytes.slice(4,8))==='ftyp'&&muxmp4.probe.tracks(databaseBytes).map(track=>track.type).sort().join(',')==='audio,video');
+check('IndexedDB assembly preserves every MP4 byte from the file-backed reference',databaseBytes.length===bytes.length&&databaseBytes.every((byte,index)=>byte===bytes[index]));
+toast.querySelector('button').click();await tick();await tick();navigator.storage.getDirectory=nativeDirectory;
+const db=await new Promise(resolve=>{const request=indexedDB.open('dubtv-plus-downloads',1);request.onsuccess=()=>resolve(request.result);});const keys=await new Promise(resolve=>{const tx=db.transaction('parts'),request=tx.objectStore('parts').getAllKeys();tx.oncomplete=()=>resolve(request.result);});db.close();
+check('Closing the IndexedDB download removes its temporary fragments',keys.length===0&&save.hidden);
+
+const nativeGetFile=FileSystemFileHandle.prototype.getFile;
+try{
+ FileSystemFileHandle.prototype.getFile=async function(){const file=await nativeGetFile.call(this);return file.size===2162688?file:file.slice(0,Math.max(0,file.size-1));};
+ quick.click();await waitFor(()=>toast.querySelector('[role=status]').textContent.includes('Не удалось скачать:'));
+ check('Incomplete stored media is rejected before offering a download',save.hidden&&!save.hasAttribute('href')&&toast.querySelector('[role=status]').textContent.includes('записался не полностью'));
+ check('Rejected media releases its temporary storage',JSON.stringify(await stored())===JSON.stringify(before));
+}finally{FileSystemFileHandle.prototype.getFile=nativeGetFile;toast.querySelector('button').click();}
+document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
+</script></html>

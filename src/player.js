@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DubTV+
 // @namespace    dubtv-plus
-// @version      1.1.0
+// @version      1.1.1
 // @author       laynholt
 // @icon         data:image/svg+xml;base64,__ICON__
 // @homepageURL  https://github.com/Laynholt/dubtv-plus
@@ -153,15 +153,15 @@
   const help = document.createElement('div');
   help.innerHTML = '<h3>Горячие клавиши</h3><dl class="dtvp-shortcuts"><dt>X / C</dt><dd>Скорость −0,25× / +0,25×</dd><dt>G</dt><dd>Перейти к времени</dd><dt>Shift + ← / →</dt><dd>Предыдущая / следующая серия</dd><dt>T / Esc</dt><dd>Кинотеатр / выход</dd><dt>Z</dt><dd>Отменить перемотку</dd></dl><p>Работают и с русской раскладкой. В полях ввода клавиши не перехватываются.</p>';
   panels.player.append(help);
-  panels.about.innerHTML = '<h3>DubTV+ · 1.1.0</h3><p>Автор: <a href="https://github.com/Laynholt" target="_blank" rel="noopener noreferrer">laynholt</a></p><p>Неофициальные улучшения DubTV для Violentmonkey.</p><p><a href="https://github.com/Laynholt/dubtv-plus" target="_blank" rel="noopener noreferrer">Исходный код</a> · <a href="https://github.com/Laynholt/dubtv-plus/releases" target="_blank" rel="noopener noreferrer">Релизы</a></p><p>Обновления из релизов проверяет Violentmonkey. Настройки и скрытые тайтлы сохраняются в этом браузере.</p>';
+  panels.about.innerHTML = '<h3>DubTV+ · 1.1.1</h3><p>Автор: <a href="https://github.com/Laynholt" target="_blank" rel="noopener noreferrer">laynholt</a></p><p>Неофициальные улучшения DubTV для Violentmonkey.</p><p><a href="https://github.com/Laynholt/dubtv-plus" target="_blank" rel="noopener noreferrer">Исходный код</a> · <a href="https://github.com/Laynholt/dubtv-plus/releases" target="_blank" rel="noopener noreferrer">Релизы</a></p><p>Обновления из релизов проверяет Violentmonkey. Настройки и скрытые тайтлы сохраняются в этом браузере.</p>';
   const report = document.createElement('a'); report.textContent='Сообщить об ошибке'; report.id='dtvp-report-bug'; report.target='_blank'; report.rel='noopener noreferrer';
-  report.href='https://github.com/Laynholt/dubtv-plus/issues/new?'+new URLSearchParams({title:'[Ошибка] ',body:'### Устройство и версии\n- Устройство:\n- ОС и версия:\n- Браузер и версия:\n- Менеджер скриптов и версия:\n- DubTV+: 1.1.0\n\n### Ссылка на тайтл или страницу\n\n### Как повторить\n1. \n2. \n\n### Ожидаемое поведение\n\n### Что происходит\n\n### Скриншоты или видео\nПрикрепите файлы к этому сообщению или добавьте ссылки.\n'});
+  report.href='https://github.com/Laynholt/dubtv-plus/issues/new?'+new URLSearchParams({title:'[Ошибка] ',body:'### Устройство и версии\n- Устройство:\n- ОС и версия:\n- Браузер и версия:\n- Менеджер скриптов и версия:\n- DubTV+: 1.1.1\n\n### Ссылка на тайтл или страницу\n\n### Как повторить\n1. \n2. \n\n### Ожидаемое поведение\n\n### Что происходит\n\n### Скриншоты или видео\nПрикрепите файлы к этому сообщению или добавьте ссылки.\n'});
   const sourceLinks=panels.about.querySelector('a[href$="/releases"]').parentElement;sourceLinks.append(' · ',report);
   document.body.append(settings);
   const refreshDownloads = createDownloadTools(panels.player);
   const refreshAutoplay = createAutoplayTools();
   const refreshReleaseLayout = createReleaseLayoutTools();
-  const refreshLibrary = typeof createLibraryTools === 'function' ? createLibraryTools(panels.library, options) : () => {};
+  const refreshLibrary = createLibraryTools(panels.library, options);
   let dragged = false;
   const openSettings = button('', event => {
     if (dragged && event.detail !== 0) { dragged = false; return; }

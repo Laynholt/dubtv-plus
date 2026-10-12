@@ -1,5 +1,6 @@
 <!doctype html><html lang="ru"><meta charset="utf-8"><title>Download cache tests</title><ol id="results"></ol>
-<script src="/src/download.js"></script><script type="module">
+<script>window.downloadReady=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/src/download.js?test='+Date.now();script.onload=resolve;script.onerror=reject;document.head.append(script);});</script><script type="module">
+await window.downloadReady;
 let passed=0,failed=0;
 function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
 const directory=await(await navigator.storage.getDirectory()).getDirectoryHandle('dubtv-plus-downloads',{create:true});
@@ -12,6 +13,8 @@ if(cache){
  const result=await cache.finish();
  check('A file above 256 MiB completes without keeping all bytes in memory',result.size===257*1024*1024&&result.type==='video/mp4');
  check('File-backed output retains written bytes',new Uint8Array(await result.slice(256*1024*1024,256*1024*1024+1).arrayBuffer())[0]===42);
+ const prefix=new Uint8Array([0,0,0,8,102,116,121,112]),downloadFile=new File([prefix,result],'large.mp4',{type:'application/octet-stream'}),downloadURL=URL.createObjectURL(downloadFile);
+ try{const offset=prefix.length+256*1024*1024,response=await fetch(downloadURL,{headers:{Range:`bytes=${offset}-${offset}`}});check('A named binary download above 256 MiB exposes its final bytes without copying the entire file',downloadFile.size===prefix.length+result.size&&response.status===206&&new Uint8Array(await response.arrayBuffer())[0]===42);const first=await fetch(downloadURL,{headers:{Range:'bytes=0-7'}});check('Large file export retains its separately assembled header',first.status===206&&Array.from(new Uint8Array(await first.arrayBuffer())).join(',')==='0,0,0,8,102,116,121,112');}finally{URL.revokeObjectURL(downloadURL);}
  await cache.remove();check('Completed temporary file is deleted after use',JSON.stringify(await files())===JSON.stringify(before));
  const cancelled=await createDownloadCache();await cancelled.write(new Uint8Array([1,2,3]));await cancelled.remove();check('Cancellation deletes incomplete temporary output',JSON.stringify(await files())===JSON.stringify(before));
  const native=FileSystemFileHandle.prototype.createWritable;
@@ -48,8 +51,52 @@ try{
  const failed=await createDownloadCache(),nativePut=IDBObjectStore.prototype.put;let quotaError;
  try{IDBObjectStore.prototype.put=()=>{throw new DOMException('Storage full','QuotaExceededError');};await failed.write(new Uint8Array([4]));}catch(error){quotaError=error;}finally{IDBObjectStore.prototype.put=nativePut;await failed.remove();}
  check('Database quota failure is reported and remains cleanable',quotaError?.name==='QuotaExceededError'&&JSON.stringify(await databaseKeys())===JSON.stringify(databaseBefore));
+ const nativeGetAll=IDBObjectStore.prototype.getAll;
+ try{
+  IDBObjectStore.prototype.getAll=function(...args){const request=nativeGetAll.apply(this,args);request.addEventListener('success',()=>{if(request.result.length>2)Object.defineProperty(request,'result',{value:request.result.slice(1)});});return request;};
+  const omitted=await createDownloadCache();
+  const first=new Uint8Array(1435866).fill(57);await omitted.write(first);await omitted.write(new Uint8Array([85]));await omitted.write(new Uint8Array([119]));
+  const output=await omitted.finish();
+  check('Missing first result from bulk reading does not lose the first media fragment',output.size===1435868&&new Uint8Array(await output.slice(0,1).arrayBuffer())[0]===57&&Array.from(new Uint8Array(await output.slice(-2).arrayBuffer())).join(',')==='85,119');
+  await omitted.remove();
+ }finally{IDBObjectStore.prototype.getAll=nativeGetAll;}
+ const nativeBlob=window.Blob,nativeArrayBuffer=nativeBlob.prototype.arrayBuffer;let nested;const assemblyReads=[];
+ try{
+  window.Blob=new Proxy(nativeBlob,{construct(target,args){const [parts,options]=args;return new target(parts?.length>2&&options?.type==='video/mp4'?parts.slice(1):parts,options);}});
+  nested=await createDownloadCache();const first=new Uint8Array(1435866).fill(57);
+  await nested.write(first);await nested.write(new Uint8Array([85]));await nested.write(new Uint8Array([119]));
+  nativeBlob.prototype.arrayBuffer=function(){assemblyReads.push(this.size);return nativeArrayBuffer.call(this);};
+  let output;try{output=await nested.finish();}catch{}
+  nativeBlob.prototype.arrayBuffer=nativeArrayBuffer;
+  check('Blob assembly losing its first Blob preserves that fragment without copying the whole video',output?.size===1435868&&new Uint8Array(await output.slice(0,1).arrayBuffer())[0]===57&&Array.from(new Uint8Array(await output.slice(-2).arrayBuffer())).join(',')==='85,119');
+  check('Database export does not read back stored Blob contents',assemblyReads.length===0);
+ }finally{window.Blob=nativeBlob;nativeBlob.prototype.arrayBuffer=nativeArrayBuffer;await nested?.remove();}
+ const nativeGet=IDBObjectStore.prototype.get;let unreadable;
+ try{
+  // iOS reports the stored Blob's size correctly while its bytes are unavailable.
+  IDBObjectStore.prototype.get=function(...args){const request=nativeGet.apply(this,args);request.addEventListener('success',()=>{const part=request.result;if(part instanceof nativeBlob&&part.size===1435866)part.arrayBuffer=async()=>new ArrayBuffer(0);});return request;};
+  window.Blob=new Proxy(nativeBlob,{construct(target,args){const [parts,options]=args;return new target(parts?.length>2&&parts[0] instanceof nativeBlob&&options?.type==='video/mp4'?parts.slice(1):parts,options);}});
+  unreadable=await createDownloadCache();await unreadable.write(new Uint8Array(1435866).fill(57));await unreadable.write(new Uint8Array([85]));await unreadable.write(new Uint8Array([119]));
+  let output;try{output=await unreadable.finish();}catch{}
+  check('Unreadable IndexedDB Blob cannot lose the first 1435866-byte fragment',output?.size===1435868&&new Uint8Array(await output.slice(0,1).arrayBuffer())[0]===57&&Array.from(new Uint8Array(await output.slice(-2).arrayBuffer())).join(',')==='85,119');
+ }finally{IDBObjectStore.prototype.get=nativeGet;window.Blob=nativeBlob;await unreadable?.remove();}
+ const snapshot=await createDownloadCache(),mutable=new Uint8Array([9,7,8,9]);const writing=snapshot.write(mutable.subarray(1,3));mutable.fill(0);await writing;
+ check('Queued database writes preserve the original view bytes',Array.from(new Uint8Array(await(await snapshot.finish()).arrayBuffer())).join(',')==='7,8');await snapshot.remove();
+ const missing=await createDownloadCache();await missing.write(new Uint8Array([1,2]));await missing.write(new Uint8Array([3]));
+ const missingKey=(await databaseKeys()).find(key=>!databaseBefore.some(previous=>JSON.stringify(previous)===JSON.stringify(key)));
+ const deleting=await openDownloadDatabase();await new Promise((resolve,reject)=>{const tx=deleting.transaction('parts','readwrite');tx.objectStore('parts').delete(missingKey);tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});deleting.close();
+ let missingError;try{await missing.finish();}catch(error){missingError=error;}
+ check('A deleted record reports the exact missing fragment instead of returning an incomplete MP4',missingError?.message.includes('фрагмент 1 из 2: ожидалось 2 байт, прочитано 0'));
+ await missing.remove();
  const nativeOpen=indexedDB.open;let diagnostic;
  try{indexedDB.open=()=>{throw new DOMException('Storage denied','SecurityError');};const unavailable=await createDownloadCache(reason=>diagnostic=reason);check('Both storage failures retain the exact reason for the user',!unavailable&&diagnostic.includes('API временных файлов')&&diagnostic.includes('SecurityError: Storage denied'));}finally{indexedDB.open=nativeOpen;}
+ const originalPut=IDBObjectStore.prototype.put;
+ try{
+  IDBObjectStore.prototype.put=function(value,key){return originalPut.call(this,Array.isArray(key)&&key[1]===0?new Uint8Array(0):value,key);};
+  const broken=await createDownloadCache(reason=>diagnostic=reason);
+  check('Database losing its first binary fragment is rejected with exact byte counts',!broken&&diagnostic.includes('База:')&&diagnostic.includes('фрагмент 1 из 2: ожидалось 2097152 байт, прочитано 0'));
+  check('Rejected database probe removes its temporary records',JSON.stringify(await databaseKeys())===JSON.stringify(databaseBefore));
+ }finally{IDBObjectStore.prototype.put=originalPut;}
 }finally{navigator.storage.getDirectory=nativeDirectory;}
 const nativeWritable=FileSystemFileHandle.prototype.createWritable,nativeWorker=window.Worker;
 try{
@@ -57,5 +104,30 @@ try{
  const blocked=await createDownloadCache();check('Blocked worker falls back to database storage',blocked?.kind==='indexeddb');if(blocked){await blocked.write(new Uint8Array([5,6]));check('Blocked-worker fallback produces the expected bytes',Array.from(new Uint8Array(await(await blocked.finish()).arrayBuffer())).join(',')==='5,6');await blocked.remove();}
  check('Worker failure removes its empty file before using the database',JSON.stringify(await files())===JSON.stringify(before)&&JSON.stringify(await databaseKeys())===JSON.stringify(databaseBefore));
 }finally{FileSystemFileHandle.prototype.createWritable=nativeWritable;window.Worker=nativeWorker;}
+const nativeGetFile=FileSystemFileHandle.prototype.getFile;
+try{
+ FileSystemFileHandle.prototype.getFile=async function(){const file=await nativeGetFile.call(this);return file.slice(Math.min(1152,file.size));};
+ const broken=await createDownloadCache();
+ check('Silently lost first write selects the database before downloading media',broken?.kind==='indexeddb');
+ if(broken){await broken.write(new Uint8Array([7,8]));check('Fallback after lost bytes preserves the complete output',Array.from(new Uint8Array(await(await broken.finish()).arrayBuffer())).join(',')==='7,8');await broken.remove();}
+ check('Failed storage probe removes its temporary file',JSON.stringify(await files())===JSON.stringify(before));
+}finally{FileSystemFileHandle.prototype.getFile=nativeGetFile;}
+try{
+ FileSystemFileHandle.prototype.getFile=async function(){const file=await nativeGetFile.call(this);return file.size?new Blob([new Uint8Array([0]),file.slice(1)]):file;};
+ const corrupt=await createDownloadCache();check('Corrupted bytes with the correct size also select the database',corrupt?.kind==='indexeddb');await corrupt?.remove();
+}finally{FileSystemFileHandle.prototype.getFile=nativeGetFile;}
+const orphanId=crypto.randomUUID(),orphanFile=await directory.getFileHandle(orphanId+'.mp4',{create:true});
+const orphanWriter=await orphanFile.createWritable();await orphanWriter.write(new Uint8Array([9,8]));await orphanWriter.close();
+const orphanDB=await new Promise((resolve,reject)=>{const request=indexedDB.open('dubtv-plus-downloads',1);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+await new Promise((resolve,reject)=>{const tx=orphanDB.transaction('parts','readwrite');tx.objectStore('parts').put(new Blob([new Uint8Array([7])]),[orphanId,0]);tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});orphanDB.close();
+const active=await createDownloadCache();await active.write(new Uint8Array([1,2]));
+check('Abandoned-cache recovery is available',typeof cleanupDownloadCaches==='function');
+if(typeof cleanupDownloadCaches==='function'){
+ await cleanupDownloadCaches();
+ check('Recovery removes orphan files and database fragments',!(await files()).includes(orphanId+'.mp4')&&!(await databaseKeys()).some(key=>key[0]===orphanId));
+ check('Recovery preserves an active download in another owner',Array.from(new Uint8Array(await(await active.finish()).arrayBuffer())).join(',')==='1,2');
+}
+await active.remove();
+if(typeof cleanupDownloadCaches!=='function'){await directory.removeEntry(orphanId+'.mp4');const cleanup=await new Promise(resolve=>{const request=indexedDB.open('dubtv-plus-downloads',1);request.onsuccess=()=>resolve(request.result);});await new Promise(resolve=>{const tx=cleanup.transaction('parts','readwrite');tx.objectStore('parts').delete(IDBKeyRange.bound([orphanId,0],[orphanId,Number.MAX_SAFE_INTEGER]));tx.oncomplete=resolve;});cleanup.close();}
 document.title=`${failed?'FAIL':'PASS'}: ${passed} passed, ${failed} failed`;
 </script></html>

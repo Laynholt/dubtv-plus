@@ -29,7 +29,7 @@ video.currentTime=240;
 let nativeTheatre=0,episode=1;
 document.querySelector('[aria-label="Режим кинотеатра"]').onclick=()=>nativeTheatre++;
 document.querySelector('#next').onclick=()=>{episode++;video.dispatchEvent(new Event('loadstart'));};
-</script><script src="/dubtv-plus.user.js?v=110-release"></script><script type="module">
+</script><script src="/dubtv-plus.user.js?v=111-release"></script><script type="module">
 if (!location.search.includes('demo')) {
 const tick=()=>new Promise(r=>setTimeout(r,80));let passed=0,failed=0;
 function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
@@ -46,7 +46,7 @@ check('Mirror applies to links added by SPA updates',newShiki.hostname==='shikim
 mirror.checked=false;mirror.dispatchEvent(new Event('change'));await tick();
 check('Disabling mirror restores original links',shiki.href==='https://shikimori.one/animes/123?x=1#details'&&newShiki.hostname==='shikimori.one');
 const reportURL=new URL(document.querySelector('#dtvp-report-bug').href),reportBody=reportURL.searchParams.get('body');
-check('Bug report opens a filled GitHub template with device and reproduction fields',reportURL.origin==='https://github.com'&&reportURL.pathname==='/Laynholt/dubtv-plus/issues/new'&&['Устройство','Браузер','Как повторить','Ссылка','Скриншоты','1.1.0'].every(word=>reportBody.includes(word)));
+check('Bug report opens a filled GitHub template with device and reproduction fields',reportURL.origin==='https://github.com'&&reportURL.pathname==='/Laynholt/dubtv-plus/issues/new'&&['Устройство','Браузер','Как повторить','Ссылка','Скриншоты','1.1.1'].every(word=>reportBody.includes(word)));
 check('Settings button exists',!!document.querySelector('#dubtv-plus-open'));
 const launcher=document.querySelector('#dubtv-plus-open');
 const initial=launcher.getBoundingClientRect();

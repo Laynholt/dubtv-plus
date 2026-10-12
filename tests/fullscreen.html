@@ -15,7 +15,7 @@ function nativeVideo(video){
   video.webkitEnterFullscreen=()=>nativeCalls++;
 }
 nativeVideo(document.querySelector('video'));
-</script><script src="/dubtv-plus.user.js?v=110-release"></script><script type="module">
+</script><script src="/dubtv-plus.user.js?v=111-release"></script><script type="module">
 let passed=0,failed=0;
 function check(name,value){const li=document.createElement('li');li.textContent=(value?'PASS: ':'FAIL: ')+name;document.querySelector('#results').append(li);value?passed++:failed++;}
 function click(name,expectedNative,expectedSite,target=fullscreen){nativeCalls=siteCalls=0;target.click();check(name,nativeCalls===expectedNative&&siteCalls===expectedSite);}
