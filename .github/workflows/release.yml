@@ -14,9 +14,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node build.mjs --check
-      - run: node --check dubtv-plus.user.js
-      - run: node --test tests/metadata.mjs tests/mp4.mjs tests/download-stream.mjs
+      - run: npm ci
+      # GitHub's Ubuntu runner ships Google Chrome, so Playwright needs no browser download.
+      - run: npm test
+        env:
+          BROWSER_CHANNEL: chrome
       - name: Verify tag and upload assets
         env:
           GH_TOKEN: ${{ github.token }}

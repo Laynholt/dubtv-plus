@@ -13,9 +13,8 @@ function createAutoplayTools() {
     }
   },true);
   function episodeKey(video) {
-    const label = video.parentElement?.querySelector('button[aria-label^="Серии:"]')?.getAttribute('aria-label');
-    const heading = [...document.querySelectorAll('main h3,main span,#main h3,#main span')].find(e=>/^(?:Серия|Часть)\s*\d+$/.test(e.textContent.trim()))?.textContent.trim();
-    return label || heading ? `${location.pathname}:${label || heading}` : null;
+    const label = video.parentElement?.querySelector('button[aria-label^="Серии:"]')?.getAttribute('aria-label') || currentEpisodeLabel();
+    return label ? `${location.pathname}:${label}` : null;
   }
   function updateEpisode(video, loading = false) {
     if (video !== current || !video.isConnected) return;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DubTV+
 // @namespace    dubtv-plus
-// @version      1.1.1
+// @version      1.2.0
 // @author       laynholt
 // @icon         data:image/svg+xml;base64,__ICON__
 // @homepageURL  https://github.com/Laynholt/dubtv-plus
@@ -44,7 +44,12 @@
   let activeVideo;
   let theatre = false;
   let route = location.pathname;
-  const setText = (element, text) => { if (element.textContent !== text) element.textContent = text; };
+  // Editing the existing text node is a characterData change, so the page observer does not rerun refresh() for it.
+  const setText = (element, text) => {
+    if (element.textContent === text) return;
+    if (element.childNodes.length === 1 && element.firstChild.nodeType === Node.TEXT_NODE) element.firstChild.data = text;
+    else element.textContent = text;
+  };
   function saveOptions() {
     try { localStorage.setItem('dubtv-plus-options', JSON.stringify(options)); } catch { /* Session-only settings. */ }
   }
@@ -153,9 +158,9 @@
   const help = document.createElement('div');
   help.innerHTML = '<h3>Горячие клавиши</h3><dl class="dtvp-shortcuts"><dt>X / C</dt><dd>Скорость −0,25× / +0,25×</dd><dt>G</dt><dd>Перейти к времени</dd><dt>Shift + ← / →</dt><dd>Предыдущая / следующая серия</dd><dt>T / Esc</dt><dd>Кинотеатр / выход</dd><dt>Z</dt><dd>Отменить перемотку</dd></dl><p>Работают и с русской раскладкой. В полях ввода клавиши не перехватываются.</p>';
   panels.player.append(help);
-  panels.about.innerHTML = '<h3>DubTV+ · 1.1.1</h3><p>Автор: <a href="https://github.com/Laynholt" target="_blank" rel="noopener noreferrer">laynholt</a></p><p>Неофициальные улучшения DubTV для Violentmonkey.</p><p><a href="https://github.com/Laynholt/dubtv-plus" target="_blank" rel="noopener noreferrer">Исходный код</a> · <a href="https://github.com/Laynholt/dubtv-plus/releases" target="_blank" rel="noopener noreferrer">Релизы</a></p><p>Обновления из релизов проверяет Violentmonkey. Настройки и скрытые тайтлы сохраняются в этом браузере.</p>';
+  panels.about.innerHTML = '<h3>DubTV+ · __VERSION__</h3><p>Автор: <a href="https://github.com/Laynholt" target="_blank" rel="noopener noreferrer">laynholt</a></p><p>Неофициальные улучшения DubTV для Violentmonkey.</p><p><a href="https://github.com/Laynholt/dubtv-plus" target="_blank" rel="noopener noreferrer">Исходный код</a> · <a href="https://github.com/Laynholt/dubtv-plus/releases" target="_blank" rel="noopener noreferrer">Релизы</a></p><p>Обновления из релизов проверяет Violentmonkey. Настройки и скрытые тайтлы сохраняются в этом браузере.</p>';
   const report = document.createElement('a'); report.textContent='Сообщить об ошибке'; report.id='dtvp-report-bug'; report.target='_blank'; report.rel='noopener noreferrer';
-  report.href='https://github.com/Laynholt/dubtv-plus/issues/new?'+new URLSearchParams({title:'[Ошибка] ',body:'### Устройство и версии\n- Устройство:\n- ОС и версия:\n- Браузер и версия:\n- Менеджер скриптов и версия:\n- DubTV+: 1.1.1\n\n### Ссылка на тайтл или страницу\n\n### Как повторить\n1. \n2. \n\n### Ожидаемое поведение\n\n### Что происходит\n\n### Скриншоты или видео\nПрикрепите файлы к этому сообщению или добавьте ссылки.\n'});
+  report.href='https://github.com/Laynholt/dubtv-plus/issues/new?'+new URLSearchParams({title:'[Ошибка] ',body:'### Устройство и версии\n- Устройство:\n- ОС и версия:\n- Браузер и версия:\n- Менеджер скриптов и версия:\n- DubTV+: __VERSION__\n\n### Ссылка на тайтл или страницу\n\n### Как повторить\n1. \n2. \n\n### Ожидаемое поведение\n\n### Что происходит\n\n### Скриншоты или видео\nПрикрепите файлы к этому сообщению или добавьте ссылки.\n'});
   const sourceLinks=panels.about.querySelector('a[href$="/releases"]').parentElement;sourceLinks.append(' · ',report);
   document.body.append(settings);
   const refreshDownloads = createDownloadTools(panels.player);
@@ -388,7 +393,7 @@
     if (video !== activeVideo || !video.isConnected) return;
     const speedChoice = Array.from(document.querySelectorAll('button')).find(b => b.getClientRects().length && b.textContent.trim() === (rate === 1 ? 'Обычная' : `${rate}×`));
     if (speedChoice) speedChoice.click();
-    else { document.cookie = `player_speed=${rate};path=/;max-age=31536000;SameSite=Lax`; restoreSpeed(video); }
+    else { saveSpeed(rate); restoreSpeed(video); }
     await frame();
     if (settingsButton?.getAttribute('aria-expanded') === 'true') settingsButton.click();
   }
@@ -472,8 +477,15 @@
     badge.click();
   }
 
+  function saveSpeed(rate) {
+    document.cookie = `player_speed=${rate};path=/;max-age=31536000;SameSite=Lax`;
+  }
+
   function restoreSpeed(video) {
     if (!onRelease() || !video.isConnected) return;
+    // The iOS fullscreen player hides the site's menu, so any speed there is the viewer's choice.
+    // shortcut: speed extensions on desktop are still reverted; the site re-applies its own stale speed on episode change.
+    if (video.webkitDisplayingFullscreen && video.playbackRate >= 0.25 && video.playbackRate <= 2) saveSpeed(video.playbackRate);
     const saved = Number(document.cookie.match(/(?:^|;\s*)player_speed=([\d.]+)(?:;|$)/)?.[1]);
     const rate = Number.isFinite(saved) && saved >= 0.25 && saved <= 2 ? saved : 1;
     // load() resets playbackRate to defaultPlaybackRate when the source changes.

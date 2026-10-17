@@ -164,7 +164,7 @@ check('List failure is visible and retryable',document.querySelector('#dtvp-list
 check('List failure never hides completed from stale data',!document.querySelector('[href="/release/beta"]')?.classList.contains('dtvp-hidden-card'));
 fail=false;document.querySelector('#dtvp-refresh-lists')?.click();await tick();check('Retry recovers statuses',document.querySelector('[href="/release/beta"]')?.textContent.includes('Просмотрено'));
 choice.value='gamma';document.querySelector('#dtvp-hide-title').click();await tick();
-history.pushState(null,'','/ongoing');refresh();await tick();check('Completed filter is scoped to catalogue',!document.querySelector('[href="/release/beta"]')?.classList.contains('dtvp-hidden-card'));
+const callsBeforeRoute=calls;history.pushState(null,'','/ongoing');refresh();await tick();check('Route change reuses loaded lists',calls===callsBeforeRoute);check('Completed filter is scoped to catalogue',!document.querySelector('[href="/release/beta"]')?.classList.contains('dtvp-hidden-card'));
 alpha.dispatchEvent(new PointerEvent('pointerover',{bubbles:true}));alpha.focus();await tick();
 check('Ongoing cards do not offer the not-interested action',document.querySelector('#dtvp-card-tools').hidden);
 check('Ongoing schedule retains locally hidden titles',!document.querySelector('[href="/release/gamma"]').classList.contains('dtvp-hidden-card'));

@@ -114,8 +114,7 @@ function setDownloadDuration(init, duration) {
 }
 
 function currentDownloadEpisode(release) {
-  const current = Array.from(document.querySelectorAll('main h3, main span, #main h3, #main span'))
-    .map(e => e.textContent.trim()).find(text => /^(?:Серия|Часть)\s*\d+$/i.test(text));
+  const current = currentEpisodeLabel();
   return current ? release.episodes.find(e => e.episodeNumber === Number(current.match(/\d+/)[0]))
     : release.episodes.length === 1 ? release.episodes[0] : undefined;
 }
@@ -372,6 +371,18 @@ function createDownloadTools(panel) {
   function stop() { operation?.abort(); pendingSave?.(); pendingSave = undefined; clearBlob().catch(cleanupWarning); }
   const keepExport=()=>!!completedFile&&browserHandoff;
   window.addEventListener('pagehide',()=>{if(!keepExport())stop();});
+  // The site reloads the whole page when a title opens, which ends the download; meanwhile links open in a new tab.
+  document.addEventListener('click', event => {
+    if (!operation && !completedFile || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest?.('a[href]');
+    if (!link || toast.contains(link) || dialog.contains(link) || link.hasAttribute('download') || link.target && link.target !== '_self') return;
+    const url = new URL(link.href, location.href);
+    if (!/^https?:$/.test(url.protocol) || url.href.split('#')[0] === location.href.split('#')[0]) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    window.open(url.href, '_blank', 'noopener');
+    if (!toast.hidden && !toastStatus.textContent) toastStatus.textContent = 'Пока идёт загрузка, ссылки открываются в новой вкладке.';
+  }, true);
+  window.addEventListener('beforeunload', event => { if (operation || completedFile) event.preventDefault(); });
   close.onclick = () => { if (!quickMode) stop(); dialog.close(); };
   toastClose.onclick = () => { stop(); toast.hidden = true; };
   dialog.addEventListener('cancel', () => { if (!quickMode) stop(); });
@@ -453,8 +464,8 @@ function createDownloadTools(panel) {
         let playlist = parseDownloadPlaylist(await downloadRead(masterUrl, controller.signal, true, 2*1024*1024), masterUrl);
         let actualQuality = quality === 'max' ? 0 : Number(quality);
         if (playlist.variants) {
-          const variant = quality === 'max' ? playlist.variants[0] : playlist.variants.find(v => v.height === Number(quality));
-          if (!variant) throw new Error(`Качество ${quality}p недоступно в серии ${episode.episodeNumber}.`);
+          // Like the player: the nearest lower quality, else the lowest available.
+          const variant = quality === 'max' ? playlist.variants[0] : playlist.variants.find(v => v.height <= Number(quality)) ?? playlist.variants.at(-1);
           actualQuality = variant.height;
           playlist = parseDownloadPlaylist(await downloadRead(variant.url, controller.signal, true, 2*1024*1024), variant.url);
         }
@@ -537,7 +548,10 @@ function createDownloadTools(panel) {
   return () => {
     const path = location.pathname;
     if ((releasePath && releasePath !== path) || (loading && loading.path !== path)) {
-      loading?.controller.abort(); stop(); release = undefined; releasePath = undefined; dialog.close(); toast.hidden = true;
+      loading?.controller.abort(); release = undefined; releasePath = undefined;
+      // A quick download keeps running in its toast; the modal dialog belongs to the page it was opened on.
+      if (!quickMode || !operation && !completedFile) { stop(); toast.hidden = true; }
+      dialog.close();
     }
     open.hidden = !path.startsWith('/release/');
     const video = document.querySelector('main video, #main video');

@@ -35,6 +35,11 @@ function* pageObjects(doc) {
   }
 }
 
+// The site shows the current episode as a bare "Серия N" / "Часть N" heading.
+function currentEpisodeLabel() {
+  return [...document.querySelectorAll('main h3,main span,#main h3,#main span')].map(e => e.textContent.trim()).find(text => /^(?:Серия|Часть)\s*\d+$/i.test(text));
+}
+
 function createLibraryTools(panel, options) {
   'use strict';
   options ??= {};
@@ -54,6 +59,7 @@ function createLibraryTools(panel, options) {
   let statuses = new Map();
   let request;
   let attempted = false;
+  let loadedAt = 0;
   let previousPath = location.pathname;
   let cards = [];
   let cardSignature = '';
@@ -61,7 +67,6 @@ function createLibraryTools(panel, options) {
   let hoverTimer;
   let listsReady = false;
   let saving = false;
-  let routeGeneration = 0;
   let showListActions = options.showListActions !== false;
   let showHideActions = options.showHideActions !== false;
   let catalog = new Map();
@@ -258,17 +263,14 @@ function createLibraryTools(panel, options) {
     const card = hoverCard, entry = catalog.get(card?.slug);
     if (!showListActions || saving || !listsReady || !entry || !listPage() || value && !Object.hasOwn(labels,value)) { updateStatusChoice(); return; }
     closeStatusMenu(true);
-    const generation = routeGeneration;
     saving = true; reload.disabled = true; updateStatusChoice();
     actionState.textContent = `Сохраняю: ${card.title}…`;
     const controller = new AbortController(), timeout = setTimeout(()=>controller.abort(),10000);
     try {
       const response = await fetch('/api/user/lists',{method:value?'POST':'DELETE',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(value?{releaseId:entry.id,listStatus:value}:{releaseId:entry.id}),signal:controller.signal});
       if (!response.ok) throw new Error(response.status===401?'auth':'save');
-      if (generation === routeGeneration) {
-        if (value) statuses.set(card.slug,value); else statuses.delete(card.slug);
-        state.textContent = `Статусы обновлены · в списках ${statuses.size}`;
-      }
+      if (value) statuses.set(card.slug,value); else statuses.delete(card.slug);
+      state.textContent = `Статусы обновлены · в списках ${statuses.size}`;
       actionState.textContent = `${card.title}: ${value?labels[value]:'убрано из списка'}`;
     } catch (error) {
       actionState.textContent = error.message==='auth' ? 'Войдите в DubTV, чтобы менять списки.' : 'Не удалось подтвердить сохранение. Обновите статусы и попробуйте ещё раз.';
@@ -376,7 +378,7 @@ function createLibraryTools(panel, options) {
   }
   async function loadLists() {
     if (request || saving) return;
-    attempted = true; listsReady=false; statuses = new Map(); updateStatusChoice();
+    attempted = true; loadedAt = Date.now(); listsReady=false; statuses = new Map(); updateStatusChoice();
     state.textContent = 'Загружаю статусы из профиля…'; reload.disabled = true;
     const controller = new AbortController(); request = controller;
     const timeout = setTimeout(() => controller.abort(),10000);
@@ -398,10 +400,7 @@ function createLibraryTools(panel, options) {
     if(showListActions !== (options.showListActions !== false) || showHideActions !== (options.showHideActions !== false)){
       showListActions=options.showListActions !== false;showHideActions=options.showHideActions !== false;hideTools();updateStatusChoice();
     }
-    if (previousPath !== location.pathname) {
-      previousPath = location.pathname; routeGeneration++;statuses = new Map(); attempted = false;listsReady=false;
-      request?.abort(); request = undefined; reload.disabled = saving; hideTools();hoverCard=undefined;
-    }
+    if (previousPath !== location.pathname) { previousPath = location.pathname; hideTools();hoverCard=undefined; }
     cards = eligibleLinks().map(link => ({link,slug:link.getAttribute('href').split('/')[2]?.split(/[?#]/)[0],title:link.querySelector('h3')?.textContent.trim() || link.querySelector('img')?.alt || link.lastElementChild?.firstElementChild?.textContent.trim() || ''})).filter(c=>/^[a-z0-9-]+$/.test(c.slug));
     const ongoing=location.pathname==='/ongoing';
     for(const [link,button] of ongoingButtons)if(!ongoing||!showListActions||!cards.some(c=>c.link===link)){
@@ -461,7 +460,8 @@ function createLibraryTools(panel, options) {
       if (choices.some(c=>c.slug===selected)) chooser.value = selected;
       hideButton.disabled = choices.length === 0;
     }
-    if (listPage() && cards.length && !attempted) loadLists();
+    // Lists belong to the account, not the page: reuse them across routes and re-read at most every 5 minutes.
+    if (listPage() && cards.length && (!attempted || Date.now()-loadedAt > 5*60*1000)) loadLists();
     else if (!attempted && !request) { const text = 'Статусы загружаются в каталоге и похожих тайтлах.'; if (state.textContent!==text) state.textContent=text; }
   }
   function reveal(event) {

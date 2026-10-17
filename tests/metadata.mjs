@@ -13,5 +13,7 @@ test('Release metadata matches the installable script and keeps its identity', (
   assert.match(meta, /@updateURL\s+https:\/\/github\.com\/Laynholt\/dubtv-plus\/releases\/latest\/download\/dubtv-plus\.meta\.js\n/);
   const icon = meta.match(/@icon\s+data:image\/svg\+xml;base64,(\S+)/)[1];
   assert.equal(Buffer.from(icon, 'base64').toString(), readFileSync(new URL('../assets/icon.svg', import.meta.url), 'utf8'));
-  assert.ok(!script.includes('__ICON__') && !script.includes('// LIBRARY_MODULE') && !script.includes('// DOWNLOAD_MODULE') && !script.includes('// AUTOPLAY_MODULE') && !script.includes('// RELEASE_LAYOUT_MODULE'));
+  const version = meta.match(/@version\s+(\S+)/)[1];
+  assert.ok(script.includes(`<h3>DubTV+ · ${version}</h3>`) && script.includes(`DubTV+: ${version}\\n`));
+  assert.ok(!script.includes('__ICON__') && !script.includes('__VERSION__') && !script.includes('// LIBRARY_MODULE') && !script.includes('// DOWNLOAD_MODULE') && !script.includes('// AUTOPLAY_MODULE') && !script.includes('// RELEASE_LAYOUT_MODULE'));
 });

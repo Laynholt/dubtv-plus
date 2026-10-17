@@ -1,7 +1,7 @@
 <!doctype html><html lang="ru"><meta charset="utf-8"><title>Autoplay tests</title>
 <style>body{background:#141418;color:white;font:14px system-ui;padding:24px}</style>
 <main><div id="player"><video></video><button aria-label="Воспроизвести">Воспроизвести</button></div><span id="episode">Серия 1</span></main><ol id="results"></ol>
-<script src="/src/autoplay.js"></script><script>
+<script src="/src/library.js"></script><script src="/src/autoplay.js"></script><script>
 history.replaceState(null,'','/release/autoplay-test');
 let passed=0,failed=0,clicks=0,ready=0,paused=true,blocked=false;
 const video=document.querySelector('video'),play=document.querySelector('button');

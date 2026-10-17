@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs --check && node --check dubtv-plus.user.js && node --test tests/metadata.mjs tests/mp4.mjs tests/download-stream.mjs && node tests/browser.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

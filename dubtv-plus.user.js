@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DubTV+
 // @namespace    dubtv-plus
-// @version      1.1.1
+// @version      1.2.0
 // @author       laynholt
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4Ij4KICA8cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcng9IjI4IiBmaWxsPSIjMTgxODFjIi8+CiAgPGcgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSI5MDAiIGZvbnQtc2l6ZT0iMzkiIHRleHQtYW5jaG9yPSJtaWRkbGUiPgogICAgPGcgZmlsbD0iI2I4M2IyYiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMiAzKSI+PHRleHQgeD0iNjQiIHk9IjU2Ij5EVUI8L3RleHQ+PHRleHQgeD0iNDgiIHk9Ijk2Ij5UVjwvdGV4dD48L2c+CiAgICA8ZyBmaWxsPSIjZjRmMmVlIj48dGV4dCB4PSI2NCIgeT0iNTYiPkRVQjwvdGV4dD48dGV4dCB4PSI0OCIgeT0iOTYiPlRWPC90ZXh0PjwvZz4KICA8L2c+CiAgPHBhdGggZD0iTTk2IDcwdjI2bS0xMy0xM2gyNiIgc3Ryb2tlPSIjZmY2ODQyIiBzdHJva2Utd2lkdGg9IjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K
 // @homepageURL  https://github.com/Laynholt/dubtv-plus
@@ -65,6 +65,11 @@ function* pageObjects(doc) {
   }
 }
 
+// The site shows the current episode as a bare "Серия N" / "Часть N" heading.
+function currentEpisodeLabel() {
+  return [...document.querySelectorAll('main h3,main span,#main h3,#main span')].map(e => e.textContent.trim()).find(text => /^(?:Серия|Часть)\s*\d+$/i.test(text));
+}
+
 function createLibraryTools(panel, options) {
   'use strict';
   options ??= {};
@@ -84,6 +89,7 @@ function createLibraryTools(panel, options) {
   let statuses = new Map();
   let request;
   let attempted = false;
+  let loadedAt = 0;
   let previousPath = location.pathname;
   let cards = [];
   let cardSignature = '';
@@ -91,7 +97,6 @@ function createLibraryTools(panel, options) {
   let hoverTimer;
   let listsReady = false;
   let saving = false;
-  let routeGeneration = 0;
   let showListActions = options.showListActions !== false;
   let showHideActions = options.showHideActions !== false;
   let catalog = new Map();
@@ -288,17 +293,14 @@ function createLibraryTools(panel, options) {
     const card = hoverCard, entry = catalog.get(card?.slug);
     if (!showListActions || saving || !listsReady || !entry || !listPage() || value && !Object.hasOwn(labels,value)) { updateStatusChoice(); return; }
     closeStatusMenu(true);
-    const generation = routeGeneration;
     saving = true; reload.disabled = true; updateStatusChoice();
     actionState.textContent = `Сохраняю: ${card.title}…`;
     const controller = new AbortController(), timeout = setTimeout(()=>controller.abort(),10000);
     try {
       const response = await fetch('/api/user/lists',{method:value?'POST':'DELETE',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(value?{releaseId:entry.id,listStatus:value}:{releaseId:entry.id}),signal:controller.signal});
       if (!response.ok) throw new Error(response.status===401?'auth':'save');
-      if (generation === routeGeneration) {
-        if (value) statuses.set(card.slug,value); else statuses.delete(card.slug);
-        state.textContent = `Статусы обновлены · в списках ${statuses.size}`;
-      }
+      if (value) statuses.set(card.slug,value); else statuses.delete(card.slug);
+      state.textContent = `Статусы обновлены · в списках ${statuses.size}`;
       actionState.textContent = `${card.title}: ${value?labels[value]:'убрано из списка'}`;
     } catch (error) {
       actionState.textContent = error.message==='auth' ? 'Войдите в DubTV, чтобы менять списки.' : 'Не удалось подтвердить сохранение. Обновите статусы и попробуйте ещё раз.';
@@ -406,7 +408,7 @@ function createLibraryTools(panel, options) {
   }
   async function loadLists() {
     if (request || saving) return;
-    attempted = true; listsReady=false; statuses = new Map(); updateStatusChoice();
+    attempted = true; loadedAt = Date.now(); listsReady=false; statuses = new Map(); updateStatusChoice();
     state.textContent = 'Загружаю статусы из профиля…'; reload.disabled = true;
     const controller = new AbortController(); request = controller;
     const timeout = setTimeout(() => controller.abort(),10000);
@@ -428,10 +430,7 @@ function createLibraryTools(panel, options) {
     if(showListActions !== (options.showListActions !== false) || showHideActions !== (options.showHideActions !== false)){
       showListActions=options.showListActions !== false;showHideActions=options.showHideActions !== false;hideTools();updateStatusChoice();
     }
-    if (previousPath !== location.pathname) {
-      previousPath = location.pathname; routeGeneration++;statuses = new Map(); attempted = false;listsReady=false;
-      request?.abort(); request = undefined; reload.disabled = saving; hideTools();hoverCard=undefined;
-    }
+    if (previousPath !== location.pathname) { previousPath = location.pathname; hideTools();hoverCard=undefined; }
     cards = eligibleLinks().map(link => ({link,slug:link.getAttribute('href').split('/')[2]?.split(/[?#]/)[0],title:link.querySelector('h3')?.textContent.trim() || link.querySelector('img')?.alt || link.lastElementChild?.firstElementChild?.textContent.trim() || ''})).filter(c=>/^[a-z0-9-]+$/.test(c.slug));
     const ongoing=location.pathname==='/ongoing';
     for(const [link,button] of ongoingButtons)if(!ongoing||!showListActions||!cards.some(c=>c.link===link)){
@@ -491,7 +490,8 @@ function createLibraryTools(panel, options) {
       if (choices.some(c=>c.slug===selected)) chooser.value = selected;
       hideButton.disabled = choices.length === 0;
     }
-    if (listPage() && cards.length && !attempted) loadLists();
+    // Lists belong to the account, not the page: reuse them across routes and re-read at most every 5 minutes.
+    if (listPage() && cards.length && (!attempted || Date.now()-loadedAt > 5*60*1000)) loadLists();
     else if (!attempted && !request) { const text = 'Статусы загружаются в каталоге и похожих тайтлах.'; if (state.textContent!==text) state.textContent=text; }
   }
   function reveal(event) {
@@ -851,8 +851,7 @@ function setDownloadDuration(init, duration) {
 }
 
 function currentDownloadEpisode(release) {
-  const current = Array.from(document.querySelectorAll('main h3, main span, #main h3, #main span'))
-    .map(e => e.textContent.trim()).find(text => /^(?:Серия|Часть)\s*\d+$/i.test(text));
+  const current = currentEpisodeLabel();
   return current ? release.episodes.find(e => e.episodeNumber === Number(current.match(/\d+/)[0]))
     : release.episodes.length === 1 ? release.episodes[0] : undefined;
 }
@@ -1109,6 +1108,18 @@ function createDownloadTools(panel) {
   function stop() { operation?.abort(); pendingSave?.(); pendingSave = undefined; clearBlob().catch(cleanupWarning); }
   const keepExport=()=>!!completedFile&&browserHandoff;
   window.addEventListener('pagehide',()=>{if(!keepExport())stop();});
+  // The site reloads the whole page when a title opens, which ends the download; meanwhile links open in a new tab.
+  document.addEventListener('click', event => {
+    if (!operation && !completedFile || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest?.('a[href]');
+    if (!link || toast.contains(link) || dialog.contains(link) || link.hasAttribute('download') || link.target && link.target !== '_self') return;
+    const url = new URL(link.href, location.href);
+    if (!/^https?:$/.test(url.protocol) || url.href.split('#')[0] === location.href.split('#')[0]) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    window.open(url.href, '_blank', 'noopener');
+    if (!toast.hidden && !toastStatus.textContent) toastStatus.textContent = 'Пока идёт загрузка, ссылки открываются в новой вкладке.';
+  }, true);
+  window.addEventListener('beforeunload', event => { if (operation || completedFile) event.preventDefault(); });
   close.onclick = () => { if (!quickMode) stop(); dialog.close(); };
   toastClose.onclick = () => { stop(); toast.hidden = true; };
   dialog.addEventListener('cancel', () => { if (!quickMode) stop(); });
@@ -1190,8 +1201,8 @@ function createDownloadTools(panel) {
         let playlist = parseDownloadPlaylist(await downloadRead(masterUrl, controller.signal, true, 2*1024*1024), masterUrl);
         let actualQuality = quality === 'max' ? 0 : Number(quality);
         if (playlist.variants) {
-          const variant = quality === 'max' ? playlist.variants[0] : playlist.variants.find(v => v.height === Number(quality));
-          if (!variant) throw new Error(`Качество ${quality}p недоступно в серии ${episode.episodeNumber}.`);
+          // Like the player: the nearest lower quality, else the lowest available.
+          const variant = quality === 'max' ? playlist.variants[0] : playlist.variants.find(v => v.height <= Number(quality)) ?? playlist.variants.at(-1);
           actualQuality = variant.height;
           playlist = parseDownloadPlaylist(await downloadRead(variant.url, controller.signal, true, 2*1024*1024), variant.url);
         }
@@ -1274,7 +1285,10 @@ function createDownloadTools(panel) {
   return () => {
     const path = location.pathname;
     if ((releasePath && releasePath !== path) || (loading && loading.path !== path)) {
-      loading?.controller.abort(); stop(); release = undefined; releasePath = undefined; dialog.close(); toast.hidden = true;
+      loading?.controller.abort(); release = undefined; releasePath = undefined;
+      // A quick download keeps running in its toast; the modal dialog belongs to the page it was opened on.
+      if (!quickMode || !operation && !completedFile) { stop(); toast.hidden = true; }
+      dialog.close();
     }
     open.hidden = !path.startsWith('/release/');
     const video = document.querySelector('main video, #main video');
@@ -1302,9 +1316,8 @@ function createAutoplayTools() {
     }
   },true);
   function episodeKey(video) {
-    const label = video.parentElement?.querySelector('button[aria-label^="Серии:"]')?.getAttribute('aria-label');
-    const heading = [...document.querySelectorAll('main h3,main span,#main h3,#main span')].find(e=>/^(?:Серия|Часть)\s*\d+$/.test(e.textContent.trim()))?.textContent.trim();
-    return label || heading ? `${location.pathname}:${label || heading}` : null;
+    const label = video.parentElement?.querySelector('button[aria-label^="Серии:"]')?.getAttribute('aria-label') || currentEpisodeLabel();
+    return label ? `${location.pathname}:${label}` : null;
   }
   function updateEpisode(video, loading = false) {
     if (video !== current || !video.isConnected) return;
@@ -1590,7 +1603,12 @@ function createReleaseLayoutTools() {
   let activeVideo;
   let theatre = false;
   let route = location.pathname;
-  const setText = (element, text) => { if (element.textContent !== text) element.textContent = text; };
+  // Editing the existing text node is a characterData change, so the page observer does not rerun refresh() for it.
+  const setText = (element, text) => {
+    if (element.textContent === text) return;
+    if (element.childNodes.length === 1 && element.firstChild.nodeType === Node.TEXT_NODE) element.firstChild.data = text;
+    else element.textContent = text;
+  };
   function saveOptions() {
     try { localStorage.setItem('dubtv-plus-options', JSON.stringify(options)); } catch { /* Session-only settings. */ }
   }
@@ -1699,9 +1717,9 @@ function createReleaseLayoutTools() {
   const help = document.createElement('div');
   help.innerHTML = '<h3>Горячие клавиши</h3><dl class="dtvp-shortcuts"><dt>X / C</dt><dd>Скорость −0,25× / +0,25×</dd><dt>G</dt><dd>Перейти к времени</dd><dt>Shift + ← / →</dt><dd>Предыдущая / следующая серия</dd><dt>T / Esc</dt><dd>Кинотеатр / выход</dd><dt>Z</dt><dd>Отменить перемотку</dd></dl><p>Работают и с русской раскладкой. В полях ввода клавиши не перехватываются.</p>';
   panels.player.append(help);
-  panels.about.innerHTML = '<h3>DubTV+ · 1.1.1</h3><p>Автор: <a href="https://github.com/Laynholt" target="_blank" rel="noopener noreferrer">laynholt</a></p><p>Неофициальные улучшения DubTV для Violentmonkey.</p><p><a href="https://github.com/Laynholt/dubtv-plus" target="_blank" rel="noopener noreferrer">Исходный код</a> · <a href="https://github.com/Laynholt/dubtv-plus/releases" target="_blank" rel="noopener noreferrer">Релизы</a></p><p>Обновления из релизов проверяет Violentmonkey. Настройки и скрытые тайтлы сохраняются в этом браузере.</p>';
+  panels.about.innerHTML = '<h3>DubTV+ · 1.2.0</h3><p>Автор: <a href="https://github.com/Laynholt" target="_blank" rel="noopener noreferrer">laynholt</a></p><p>Неофициальные улучшения DubTV для Violentmonkey.</p><p><a href="https://github.com/Laynholt/dubtv-plus" target="_blank" rel="noopener noreferrer">Исходный код</a> · <a href="https://github.com/Laynholt/dubtv-plus/releases" target="_blank" rel="noopener noreferrer">Релизы</a></p><p>Обновления из релизов проверяет Violentmonkey. Настройки и скрытые тайтлы сохраняются в этом браузере.</p>';
   const report = document.createElement('a'); report.textContent='Сообщить об ошибке'; report.id='dtvp-report-bug'; report.target='_blank'; report.rel='noopener noreferrer';
-  report.href='https://github.com/Laynholt/dubtv-plus/issues/new?'+new URLSearchParams({title:'[Ошибка] ',body:'### Устройство и версии\n- Устройство:\n- ОС и версия:\n- Браузер и версия:\n- Менеджер скриптов и версия:\n- DubTV+: 1.1.1\n\n### Ссылка на тайтл или страницу\n\n### Как повторить\n1. \n2. \n\n### Ожидаемое поведение\n\n### Что происходит\n\n### Скриншоты или видео\nПрикрепите файлы к этому сообщению или добавьте ссылки.\n'});
+  report.href='https://github.com/Laynholt/dubtv-plus/issues/new?'+new URLSearchParams({title:'[Ошибка] ',body:'### Устройство и версии\n- Устройство:\n- ОС и версия:\n- Браузер и версия:\n- Менеджер скриптов и версия:\n- DubTV+: 1.2.0\n\n### Ссылка на тайтл или страницу\n\n### Как повторить\n1. \n2. \n\n### Ожидаемое поведение\n\n### Что происходит\n\n### Скриншоты или видео\nПрикрепите файлы к этому сообщению или добавьте ссылки.\n'});
   const sourceLinks=panels.about.querySelector('a[href$="/releases"]').parentElement;sourceLinks.append(' · ',report);
   document.body.append(settings);
   const refreshDownloads = createDownloadTools(panels.player);
@@ -1934,7 +1952,7 @@ function createReleaseLayoutTools() {
     if (video !== activeVideo || !video.isConnected) return;
     const speedChoice = Array.from(document.querySelectorAll('button')).find(b => b.getClientRects().length && b.textContent.trim() === (rate === 1 ? 'Обычная' : `${rate}×`));
     if (speedChoice) speedChoice.click();
-    else { document.cookie = `player_speed=${rate};path=/;max-age=31536000;SameSite=Lax`; restoreSpeed(video); }
+    else { saveSpeed(rate); restoreSpeed(video); }
     await frame();
     if (settingsButton?.getAttribute('aria-expanded') === 'true') settingsButton.click();
   }
@@ -2018,8 +2036,15 @@ function createReleaseLayoutTools() {
     badge.click();
   }
 
+  function saveSpeed(rate) {
+    document.cookie = `player_speed=${rate};path=/;max-age=31536000;SameSite=Lax`;
+  }
+
   function restoreSpeed(video) {
     if (!onRelease() || !video.isConnected) return;
+    // The iOS fullscreen player hides the site's menu, so any speed there is the viewer's choice.
+    // shortcut: speed extensions on desktop are still reverted; the site re-applies its own stale speed on episode change.
+    if (video.webkitDisplayingFullscreen && video.playbackRate >= 0.25 && video.playbackRate <= 2) saveSpeed(video.playbackRate);
     const saved = Number(document.cookie.match(/(?:^|;\s*)player_speed=([\d.]+)(?:;|$)/)?.[1]);
     const rate = Number.isFinite(saved) && saved >= 0.25 && saved <= 2 ? saved : 1;
     // load() resets playbackRate to defaultPlaybackRate when the source changes.

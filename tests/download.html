@@ -71,6 +71,10 @@ Object.defineProperty(document,'fullscreenElement',{value:null,configurable:true
 check('Progress returns to the page after fullscreen',document.querySelector('#dubtv-plus-download-progress').parentElement===document.body);
 document.querySelector('#dubtv-plus-download-progress button').click();
 files.clear();
+const qualityBadge=document.querySelector('[aria-label^="Качество: "]');qualityBadge.textContent='900p';requests=[];
+document.querySelector('#dubtv-plus-download-current').click();await settled();
+check('Missing quality falls back to the nearest lower one',requests.some(u=>u.includes('/2/720p/a.ts'))&&document.querySelector('#dubtv-plus-download-progress [data-quality]').textContent==='720p · MP4');
+document.querySelector('#dubtv-plus-download-progress button').click();qualityBadge.textContent='720p';files.clear();
 document.querySelector('#dubtv-plus-download-open').click();await tick();
 writes=[];closed=0;requests=[];dialog.querySelector('[name=episode]').value='all';dialog.querySelector('form').requestSubmit();await settled();
 check('Whole title saves sequential episodes',closed===2&&writes.length===6&&requests.filter(u=>u.endsWith('master.m3u8')).length===2);
@@ -124,6 +128,17 @@ for(let i=0;i<150&&!releaseCacheCreation;i++)await new Promise(r=>setTimeout(r,2
 check('Temporary file creation can be pending during navigation',typeof releaseCacheCreation==='function');
 window.dispatchEvent(new Event('pagehide'));releaseCacheCreation?.();await settled();await tick();navigator.storage.getDirectory=nativeDirectory;
 check('Reload during temporary file creation cleans late output and unlocks downloads',JSON.stringify(await cacheNames())===JSON.stringify(cacheBefore)&&!document.querySelector('#dubtv-plus-download-current').disabled);
+slowSegment=true;document.querySelector('#dubtv-plus-download-current').click();await tick();
+history.replaceState(null,'','/release/other');refresh();await tick();
+const toast=document.querySelector('#dubtv-plus-download-progress');
+check('SPA navigation keeps a running quick download',!toast.hidden&&toast.querySelector('button').textContent==='Отменить');
+const opened=[],nativeOpen=window.open;window.open=url=>{opened.push(url);return null;};
+const away=document.createElement('a');away.href='/release/another';document.querySelector('main').append(away);away.click();
+const leaving=new Event('beforeunload',{cancelable:true});window.dispatchEvent(leaving);
+check('During a download links open in a new tab and leaving asks first',opened[0]===location.origin+'/release/another'&&location.pathname==='/release/other'&&leaving.defaultPrevented&&!toast.hidden);
+window.open=nativeOpen;away.remove();
+toast.querySelector('button').click();slowSegment=false;
+history.replaceState(null,'','/release/download-test');refresh();await settled();
 history.replaceState(null,'','/catalog');refresh();check('Download control is absent outside releases',document.querySelector('#dubtv-plus-download-open').hidden);
 const slowRelease={...release,slug:'slow-test'};const slowPayload=JSON.stringify([1,'2:'+JSON.stringify({release:slowRelease})+'\n']);let resolveRelease;
 window.fetch=async()=>new Promise(resolve=>{resolveRelease=()=>resolve(new Response(`<script>self.__next_f.push(${slowPayload})<\/script>`));});

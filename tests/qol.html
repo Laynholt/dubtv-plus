@@ -46,7 +46,7 @@ check('Mirror applies to links added by SPA updates',newShiki.hostname==='shikim
 mirror.checked=false;mirror.dispatchEvent(new Event('change'));await tick();
 check('Disabling mirror restores original links',shiki.href==='https://shikimori.one/animes/123?x=1#details'&&newShiki.hostname==='shikimori.one');
 const reportURL=new URL(document.querySelector('#dtvp-report-bug').href),reportBody=reportURL.searchParams.get('body');
-check('Bug report opens a filled GitHub template with device and reproduction fields',reportURL.origin==='https://github.com'&&reportURL.pathname==='/Laynholt/dubtv-plus/issues/new'&&['Устройство','Браузер','Как повторить','Ссылка','Скриншоты','1.1.1'].every(word=>reportBody.includes(word)));
+check('Bug report opens a filled GitHub template with device and reproduction fields',reportURL.origin==='https://github.com'&&reportURL.pathname==='/Laynholt/dubtv-plus/issues/new'&&['Устройство','Браузер','Как повторить','Ссылка','Скриншоты'].every(word=>reportBody.includes(word))&&/DubTV\+: \d+\.\d+\.\d+/.test(reportBody));
 check('Settings button exists',!!document.querySelector('#dubtv-plus-open'));
 const launcher=document.querySelector('#dubtv-plus-open');
 const initial=launcher.getBoundingClientRect();
@@ -65,6 +65,9 @@ check('Cancelled pointer stops moving button',launcher.getBoundingClientRect().l
 launcher.setPointerCapture=capture;
 video.dispatchEvent(new Event('timeupdate'));await tick();
 check('Remaining time uses actual 2x rate',document.querySelector('#dubtv-plus-remaining')?.textContent.includes('10:00'));
+const remainingNode=document.querySelector('#dubtv-plus-remaining').firstChild;video.currentTime=242;video.dispatchEvent(new Event('timeupdate'));await tick();
+check('Remaining time edits its text node in place',document.querySelector('#dubtv-plus-remaining').firstChild===remainingNode&&document.querySelector('#dubtv-plus-remaining').textContent.includes('9:59'));
+video.currentTime=240;
 document.querySelector('[aria-label="Режим кинотеатра"]').click();await tick();
 check('Theatre suppresses native modal',nativeTheatre===0);
 check('Theatre is in document flow',document.documentElement.classList.contains('dtvp-theatre')&&getComputedStyle(document.querySelector('#player')).position!=='fixed');
