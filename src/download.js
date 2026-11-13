@@ -291,7 +291,7 @@ function createDownloadTools(panel) {
   const dialog = document.createElement('dialog');
   dialog.id = 'dubtv-plus-download'; dialog.className = 'dtvp-dialog';
   dialog.setAttribute('aria-label', 'Скачать серии');
-  dialog.innerHTML = '<form><h2>Скачать серии</h2><p data-title></p><div class="dtvp-download-fields"><label class="dtvp-field">Серия<select name="episode"></select></label><label class="dtvp-field">Качество<select name="quality"><option value="max">Максимальное</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option></select></label></div>' + progressMarkup + '<p role="status" aria-live="polite"></p><p class="dtvp-download-note">MP4 · На ПК — в выбранную папку. В Safari — по одной серии. При доступном временном хранилище лимита 256 МБ нет.</p><div class="dtvp-actions"><button type="button" data-cancel>Закрыть</button><a data-save hidden>Скачать файл</a><button type="button" data-next hidden>Продолжить</button><button type="submit" class="dtvp-primary">Скачать</button></div></form>';
+  dialog.innerHTML = '<form><h2>Скачать серии</h2><p data-title></p><label class="dtvp-field">Качество<select name="quality"><option value="max">Максимальное</option><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option></select></label><fieldset class="dtvp-episodes"><legend>Серии</legend><div class="dtvp-episode-tools"><span data-count></span><button type="button" data-all>Выбрать все</button><button type="button" data-none>Снять все</button></div><div class="dtvp-episode-list"></div></fieldset>' + progressMarkup + '<p role="status" aria-live="polite"></p><p class="dtvp-download-note">MP4 · На ПК — в выбранную папку. В Safari — по одной серии. При доступном временном хранилище лимита 256 МБ нет.</p><div class="dtvp-actions"><button type="button" data-cancel>Закрыть</button><a data-save hidden>Скачать файл</a><button type="button" data-next hidden>Продолжить</button><button type="submit" class="dtvp-primary">Скачать</button></div></form>';
   const toast = document.createElement('div'); toast.id = 'dubtv-plus-download-progress'; toast.hidden = true;
   toast.innerHTML = '<div class="dtvp-transfer-title">Скачивание серии</div>' + progressMarkup + '<div role="status" aria-live="polite"></div><div class="dtvp-transfer-actions"><a hidden>Скачать файл</a><button type="button">Закрыть</button></div>';
   const style = document.createElement('style');
@@ -300,7 +300,10 @@ function createDownloadTools(panel) {
     #dubtv-plus-download-progress [hidden]{display:none!important}
     #dubtv-plus-download-progress .dtvp-transfer-actions{flex-wrap:wrap}
     #dubtv-plus-download-open{display:inline-flex;align-items:center;gap:8px;font-weight:600;margin-top:6px}#dubtv-plus-download-open[hidden]{display:none!important}
-    #dubtv-plus-download .dtvp-download-fields{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px}
+    #dubtv-plus-download .dtvp-episodes{border:0;padding:0;margin:14px 0 0;min-width:0}#dubtv-plus-download .dtvp-episodes legend{padding:0;margin-bottom:8px}
+    #dubtv-plus-download .dtvp-episode-tools{display:flex;align-items:center;gap:8px;margin-bottom:8px}#dubtv-plus-download .dtvp-episode-tools [data-count]{flex:1;color:var(--color-text-secondary,#9a9aaa);font-size:12px}#dubtv-plus-download .dtvp-episode-tools button{padding:6px 10px;font-size:12px}
+    #dubtv-plus-download .dtvp-episode-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:0 12px;max-height:220px;overflow:auto;padding:4px 12px;background:var(--color-background,#0a0a0c);border:1px solid var(--color-border,#2a2a32);border-radius:8px}
+    #dubtv-plus-download .dtvp-episode-list label{margin:0;padding:7px 0;gap:8px;cursor:pointer}
     #dubtv-plus-download .dtvp-download-note{font-size:12px;margin:16px 0 0;line-height:1.6}
     #dubtv-plus-download [data-title]{margin-bottom:20px}
     .dtvp-transfer{padding:16px;background:var(--color-background,#0a0a0c);border:1px solid var(--color-border,#2a2a32);border-radius:10px;margin-top:8px}
@@ -313,10 +316,14 @@ function createDownloadTools(panel) {
     #dubtv-plus-download-progress{padding:18px;border-radius:12px;font-family:inherit}#dubtv-plus-download-progress .dtvp-transfer{background:transparent;padding:0;border:0}
     #dubtv-plus-download-progress [role=status]{margin-top:12px;color:var(--color-text-secondary,#9a9aaa);font-size:12px}#dubtv-plus-download-progress [role=status]:empty{display:none}
     #dubtv-plus-download-progress .dtvp-transfer-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:16px}#dubtv-plus-download-progress .dtvp-transfer-actions button,#dubtv-plus-download-progress .dtvp-transfer-actions a{margin:0}
-    @media(max-width:480px){#dubtv-plus-download .dtvp-download-fields{grid-template-columns:minmax(0,1fr);gap:0}}
   `;
   document.head.append(style); document.body.append(dialog, toast);
-  const episodeChoice = dialog.querySelector('[name=episode]');
+  const episodeChoice = dialog.querySelector('.dtvp-episodes');
+  const episodeList = episodeChoice.querySelector('.dtvp-episode-list');
+  const episodeBoxes = () => [...episodeList.querySelectorAll('[name=episode]')];
+  function countEpisodes() { const boxes = episodeBoxes(); episodeChoice.querySelector('[data-count]').textContent = boxes.length ? `Выбрано: ${boxes.filter(box => box.checked).length} из ${boxes.length}` : ''; controls(); }
+  episodeList.addEventListener('change', countEpisodes);
+  for (const [selector, checked] of [['[data-all]', true], ['[data-none]', false]]) episodeChoice.querySelector(selector).onclick = () => { for (const box of episodeBoxes()) box.checked = checked; countEpisodes(); };
   const qualityChoice = dialog.querySelector('[name=quality]');
   const start = dialog.querySelector('[type=submit]');
   const close = dialog.querySelector('[data-cancel]');
@@ -354,7 +361,7 @@ function createDownloadTools(panel) {
   function controls() {
     const busy = !!operation || !!completedFile;
     if (start.hidden !== busy) start.hidden = busy;
-    for (const [element, disabled] of [[start,busy || !release || releasePath !== location.pathname],[quick,busy || !release || releasePath !== location.pathname],[episodeChoice,busy || !!loading],[qualityChoice,busy || !!loading]]) {
+    for (const [element, disabled] of [[start,busy || !release || releasePath !== location.pathname || !episodeBoxes().some(box => box.checked)],[quick,busy || !release || releasePath !== location.pathname],[episodeChoice,busy || !!loading],[qualityChoice,busy || !!loading]]) {
       if (element.disabled !== disabled) element.disabled = disabled;
     }
     if(open.disabled!==busy)open.disabled=busy;
@@ -413,7 +420,7 @@ function createDownloadTools(panel) {
   open.addEventListener('click', async () => {
     if (operation || completedFile) return;
     const generation = ++opening;
-    await clearBlob().catch(cleanupWarning); toast.hidden = true; dialog.querySelector('.dtvp-transfer').hidden = true; episodeChoice.replaceChildren(); qualityChoice.value = 'max';
+    await clearBlob().catch(cleanupWarning); toast.hidden = true; dialog.querySelector('.dtvp-transfer').hidden = true; episodeList.replaceChildren(); countEpisodes(); qualityChoice.value = 'max';
     dialog.querySelector('[data-title]').textContent = ''; status.textContent = 'Загружаю список серий…'; dialog.showModal(); controls();
     const path = location.pathname;
     try {
@@ -421,9 +428,13 @@ function createDownloadTools(panel) {
       if (!dialog.open || path !== location.pathname || generation !== opening) return;
       if (!data) throw new Error('Не удалось получить список серий.');
       dialog.querySelector('[data-title]').textContent = data.title;
-      episodeChoice.add(new Option(`Весь тайтл · серий: ${data.episodes.length}`, 'all'));
-      for (const episode of data.episodes) episodeChoice.add(new Option(`Серия ${episode.episodeNumber}`, String(episode.episodeNumber)));
-      episodeChoice.value = String(currentDownloadEpisode(data)?.episodeNumber ?? data.episodes[0].episodeNumber);
+      const current = currentDownloadEpisode(data) ?? data.episodes[0];
+      for (const episode of data.episodes) {
+        const label = document.createElement('label'), box = document.createElement('input');
+        box.type = 'checkbox'; box.name = 'episode'; box.value = String(episode.episodeNumber); box.checked = episode === current;
+        label.append(box, `Серия ${episode.episodeNumber}`); episodeList.append(label);
+      }
+      countEpisodes();
       status.textContent = '';
     } catch (error) { if (dialog.open && generation === opening) status.textContent = error.name === 'AbortError' ? 'Список серий не загрузился. Попробуйте снова.' : error.message; }
     finally { if (generation === opening) controls(); }
@@ -534,7 +545,8 @@ function createDownloadTools(panel) {
   dialog.querySelector('form').addEventListener('submit', event => {
     event.preventDefault();
     if (!release) return;
-    const episodes = episodeChoice.value === 'all' ? release.episodes : release.episodes.filter(e => String(e.episodeNumber) === episodeChoice.value);
+    const chosen = new Set(episodeBoxes().filter(box => box.checked).map(box => box.value));
+    const episodes = release.episodes.filter(e => chosen.has(String(e.episodeNumber)));
     run(episodes, qualityChoice.value);
   });
   quick.addEventListener('click', () => {

@@ -38,8 +38,8 @@ const before=await stored(),refresh=integrated?()=>{}:createDownloadTools(docume
 const quick=document.querySelector('#dubtv-plus-download-current'),toast=document.querySelector('#dubtv-plus-download-progress'),save=toast.querySelector('a');
 if(integrated){
  document.querySelector('#dubtv-plus-open').click();document.querySelector('#dtvp-tab-player').click();document.querySelector('#dubtv-plus-download-open').click();await tick();
- const dialog=document.querySelector('#dubtv-plus-download'),choice=dialog.querySelector('[name=episode]');
- check('Download dialog opened from settings discovers and enables episode choices',dialog.open&&choice.options.length===2&&!choice.disabled&&choice.value==='1');
+ const dialog=document.querySelector('#dubtv-plus-download'),choice=dialog.querySelector('.dtvp-episodes'),boxes=[...choice.querySelectorAll('[name=episode]')];
+ check('Download dialog opened from settings discovers and enables episode choices',dialog.open&&boxes.length===1&&!choice.disabled&&boxes[0].checked);
  dialog.querySelector('[data-cancel]').click();document.querySelector('#dubtv-plus-settings').close();await tick();
 }
 quick.click();await waitFor(()=>!save.hidden);

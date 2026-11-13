@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DubTV+
 // @namespace    dubtv-plus
-// @version      1.2.0
+// @version      1.2.1
 // @author       laynholt
 // @icon         data:image/svg+xml;base64,__ICON__
 // @homepageURL  https://github.com/Laynholt/dubtv-plus
